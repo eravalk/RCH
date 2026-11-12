@@ -1,0 +1,13 @@
+**/bin/
+**/obj/
+release/
+*.user
+*.part
+ui-check.png
+
+vendor/rclone/rclone.exe
+*.conf
+*.db
+*.bin
+diagnostics/
+web-profiles/

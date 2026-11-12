@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType></PropertyGroup><ItemGroup><ProjectReference Include="../../src/RCHub.App/RCHub.App.csproj"/><PackageReference Include="Avalonia.Headless" Version="11.3.8"/><PackageReference Include="Avalonia.Skia" Version="11.3.8"/></ItemGroup></Project>

@@ -1,0 +1,29 @@
+name: Windows release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build, test and publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = ([xml](Get-Content Directory.Build.props -Raw)).Project.PropertyGroup.Version
+          if ($env:GITHUB_REF_NAME -ne "v$version") { throw 'Version tag differs from Directory.Build.props' }
+          ./scripts/build-windows.ps1
+          $path = "release/RCH-win-x64"
+          New-Item -ItemType Directory -Force "$path/licenses/WebView2" | Out-Null
+          Copy-Item vendor/webview2/*.txt "$path/licenses/WebView2"
+          $asset = "RCH-$version-win-x64.zip"
+          Compress-Archive "$path/*" $asset
+          gh release create $env:GITHUB_REF_NAME $asset --verify-tag --title "RCH $version" --generate-notes
+          if ($LASTEXITCODE) { throw 'Release creation failed' }
