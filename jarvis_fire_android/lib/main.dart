@@ -87,10 +87,11 @@ class _DemoLoginPageState extends State<DemoLoginPage> {
   );
 }
 class WaterMapPage extends StatelessWidget {
-  const WaterMapPage({super.key});
+  final bool embedded;
+  const WaterMapPage({super.key, this.embedded = false});
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('ДЖАРВИС FIRE · РТП')),
+    appBar: embedded ? null : AppBar(title: const Text('ДЖАРВИС FIRE · РТП')),
     body: Column(children: [
       const MaterialBanner(
         content: Text('УЧЕБНЫЙ ПРОТОТИП. Точки вымышлены. Не использовать при реальных вызовах.'),
