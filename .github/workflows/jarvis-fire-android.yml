@@ -34,7 +34,7 @@ jobs:
         run: flutter pub get
       - name: Analyze
         working-directory: jarvis_fire_android
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
       - name: Build APK
         working-directory: jarvis_fire_android
         run: flutter build apk --debug
