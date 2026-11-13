@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -23,10 +25,67 @@ class JarvisFireApp extends StatelessWidget {
     title: 'ДЖАРВИС FIRE · РТП',
     debugShowCheckedModeBanner: false,
     theme: ThemeData(colorSchemeSeed: Colors.red, useMaterial3: true),
-    home: const WaterMapPage(),
+    home: const DemoLoginPage(),
   );
 }
 
+
+const demoPasswordSha256 = '5e730980a8eef004aa65f3b8309f9ccd623abbcbd429b53b87b24bd6bb491c58';
+class DemoLoginPage extends StatefulWidget {
+  const DemoLoginPage({super.key});
+  @override
+  State<DemoLoginPage> createState() => _DemoLoginPageState();
+}
+class _DemoLoginPageState extends State<DemoLoginPage> {
+  final username = TextEditingController();
+  final password = TextEditingController();
+  bool hidden = true;
+  String? error;
+  @override
+  void dispose() {
+    username.dispose();
+    password.dispose();
+    super.dispose();
+  }
+  void submit() {
+    if (username.text.trim() == 'admin' &&
+        sha256.convert(utf8.encode(password.text)).toString() == demoPasswordSha256) {
+      Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+        builder: (_) => const WaterMapPage()));
+    } else {
+      setState(() => error = 'Неверный логин или пароль');
+    }
+  }
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('ДЖАРВИС FIRE · Вход')),
+    body: Center(child: SingleChildScrollView(child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: Padding(padding: const EdgeInsets.all(24), child: Column(
+        mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.local_fire_department, size: 64, color: Colors.red),
+          const SizedBox(height: 16),
+          Text('Учебный вход администратора', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 20),
+          TextField(controller: username, decoration: const InputDecoration(
+            labelText: 'Логин', border: OutlineInputBorder())),
+          const SizedBox(height: 12),
+          TextField(controller: password, obscureText: hidden, onSubmitted: (_) => submit(),
+            decoration: InputDecoration(labelText: 'Пароль', border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                icon: Icon(hidden ? Icons.visibility : Icons.visibility_off),
+                onPressed: () => setState(() => hidden = !hidden)))),
+          if (error != null) Padding(padding: const EdgeInsets.all(12),
+            child: Text(error!, style: const TextStyle(color: Colors.red))),
+          const SizedBox(height: 16),
+          FilledButton(onPressed: submit, child: const Text('Войти')),
+          const SizedBox(height: 12),
+          const Text('Только для тестирования. Не использовать для реальных вызовов.'),
+        ],
+      )),
+    ))),
+  );
+}
 class WaterMapPage extends StatelessWidget {
   const WaterMapPage({super.key});
   @override
