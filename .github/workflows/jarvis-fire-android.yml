@@ -25,6 +25,10 @@ jobs:
       - name: Generate Android project
         working-directory: jarvis_fire_android
         run: flutter create --platforms=android --org ru.jarvisfire .
+      - name: Remove generated template test and lint configuration
+        working-directory: jarvis_fire_android
+        run: |
+          rm -f test/widget_test.dart analysis_options.yaml
       - name: Dependencies
         working-directory: jarvis_fire_android
         run: flutter pub get
