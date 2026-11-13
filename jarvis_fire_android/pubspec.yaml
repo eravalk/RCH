@@ -1,0 +1,13 @@
+name: jarvis_fire_rtp
+description: Training-only mobile map prototype for JARVIS FIRE
+publish_to: none
+version: 0.1.0+1
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+flutter:
+  uses-material-design: true
