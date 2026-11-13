@@ -249,7 +249,11 @@ class Dispatcher(QMainWindow):
         return w
     def water_page(self):
         w,l=self.page("Водоисточники","Реестр учебных гидрантов и координат; реальные данные не загружены")
-        import_btn=QPushButton("Импортировать Excel (.xlsx) — учебный локальный реестр")\n        import_btn.clicked.connect(self.import_water_excel)\n        l.addWidget(import_btn)\n        self.water_table=self.table(["Название","Широта","Долгота","Примечание"])\n        t=self.water_table
+        import_btn=QPushButton("Импортировать Excel (.xlsx) — учебный локальный реестр")
+        import_btn.clicked.connect(self.import_water_excel)
+        l.addWidget(import_btn)
+        self.water_table=self.table(["Название","Широта","Долгота","Примечание"])
+        t=self.water_table
         rows=self.conn.execute("SELECT name,lat,lon,notes FROM water").fetchall()
         self.fill(t,rows)
         l.addWidget(t)
