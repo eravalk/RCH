@@ -5,6 +5,8 @@ import json
 import os
 import sqlite3
 import sys
+import logging
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -24,6 +26,14 @@ except ImportError:
 HASH = "5994471abb01112afcc18159f6cc74b4f511b99806da59b3caf5a9c173cacfc5"
 HOME = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "JarvisFireTraining"
 HOME.mkdir(parents=True, exist_ok=True)
+logging.basicConfig(filename=str(HOME / 'jarvis_fire.log'), level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s', encoding='utf-8')
+def log_uncaught(exc_type, exc, tb):
+    logging.critical('Unhandled exception', exc_info=(exc_type, exc, tb))
+    try:
+        QMessageBox.critical(None, 'ДЖАРВИС FIRE — ошибка', 'Ошибка записана в файл:\n' + str(HOME / 'jarvis_fire.log') + '\n\n' + str(exc))
+    except Exception:
+        pass
+sys.excepthook = log_uncaught
 DB = HOME / "dispatcher.sqlite3"
 WARNING = "УЧЕБНЫЙ ПРОТОТИП • НЕ ИСПОЛЬЗОВАТЬ ДЛЯ РЕАЛЬНЫХ ВЫЗОВОВ"
 RED = "#e84d57"
@@ -235,17 +245,15 @@ class Dispatcher(QMainWindow):
         l.addWidget(QLabel("ХРОНОЛОГИЯ СОБЫТИЙ"))
         l.addWidget(self.log_table,1)
         return w
-    def map_widget(self):
-        if QWebEngineView:
-            view=QWebEngineView()
-            view.setHtml(MAP_HTML,QUrl("https://unpkg.com/"))
-            return view
-        label=QLabel("Карта недоступна: модуль QtWebEngine не установлен.")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        return label
     def map_page(self):
-        w,l=self.page("Карта Ставрополя и Ставропольского края","OpenStreetMap • демонстрационные водоисточники • требуется интернет")
-        l.addWidget(self.map_widget(),1)
+        w,l=self.page("Карта Ставрополя и Ставропольского края","Карта открывается во внешнем браузере для стабильности Windows-сборки")
+        note=QLabel("Встроенный WebEngine временно отключён: он может аварийно завершать однофайловый EXE.\nКарта доступна через браузер. Реестр водоисточников — в отдельной вкладке.")
+        note.setWordWrap(True)
+        l.addWidget(note)
+        button=QPushButton("ОТКРЫТЬ КАРТУ СТАВРОПОЛЯ")
+        button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://www.openstreetmap.org/#map=12/45.0445/41.9690")))
+        l.addWidget(button)
+        l.addStretch()
         return w
     def water_page(self):
         w,l=self.page("Водоисточники","Реестр учебных гидрантов и координат; реальные данные не загружены")
@@ -404,6 +412,7 @@ class Dispatcher(QMainWindow):
         super().closeEvent(event)
 
 if __name__=="__main__":
+    logging.info("Application starting")
     app=QApplication(sys.argv)
     app.setStyleSheet(CSS)
     if Login().exec()==QDialog.DialogCode.Accepted:
