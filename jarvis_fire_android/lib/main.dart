@@ -24,7 +24,7 @@ class JarvisFireApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
     title: 'ДЖАРВИС FIRE · РТП',
     debugShowCheckedModeBanner: false,
-    theme: ThemeData(colorSchemeSeed: Colors.red, useMaterial3: true),
+    theme: ThemeData(brightness: Brightness.dark, scaffoldBackgroundColor: const Color(0xFF081523), colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFDA303B), brightness: Brightness.dark), useMaterial3: true),
     home: const DemoLoginPage(),
   );
 }
@@ -51,7 +51,7 @@ class _DemoLoginPageState extends State<DemoLoginPage> {
     if (username.text.trim() == 'admin' &&
         sha256.convert(utf8.encode(password.text)).toString() == demoPasswordSha256) {
       Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
-        builder: (_) => const WaterMapPage()));
+        builder: (_) => const CommanderHome()));
     } else {
       setState(() => error = 'Неверный логин или пароль');
     }
@@ -129,4 +129,119 @@ class WaterMapPage extends StatelessWidget {
       )),
     ]),
   );
+}
+
+class CommanderHome extends StatefulWidget {
+  const CommanderHome({super.key});
+  @override
+  State<CommanderHome> createState() => _CommanderHomeState();
+}
+
+class _CommanderHomeState extends State<CommanderHome> {
+  int tab = 0;
+  String stage = 'Новый';
+  final stages = <String>['Принять вызов', 'Следую к месту', 'На месте', 'Локализация', 'Ликвидация'];
+  final names = <String>['ВЫЗОВ', 'ОБЪЕКТ', 'КАРТА', 'ПОМОЩНИК', 'ЖУРНАЛ', 'ФОТОГРАФИИ'];
+  final icons = <IconData>[Icons.local_fire_department, Icons.apartment, Icons.map, Icons.mic, Icons.list_alt, Icons.photo_camera];
+  final events = <String>[];
+  Widget box(Widget child) => Container(
+    margin: const EdgeInsets.only(bottom: 12),
+    padding: const EdgeInsets.all(15),
+    decoration: BoxDecoration(color: const Color(0xFF13263A), border: Border.all(color: const Color(0xFF294158)), borderRadius: BorderRadius.circular(12)),
+    child: child,
+  );
+  void updateStage(String value) {
+    setState(() {
+      stage = value;
+      events.insert(0, '${TimeOfDay.now().format(context)} — ${value}');
+    });
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Статус сохранён локально. Серверная синхронизация не подключена.')));
+  }
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(backgroundColor: const Color(0xFF0B1B2C),
+        title: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('🚒 ДЖАРВИС FIRE', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+          Text('Мобильный РТП · учебный режим', style: TextStyle(fontSize: 11)),
+        ]),
+        actions: const [Padding(padding: EdgeInsets.all(15), child: Icon(Icons.circle, color: Colors.green, size: 12))]),
+      body: Column(children: [
+        Container(width: double.infinity, color: const Color(0xFF4D252C),
+          padding: const EdgeInsets.all(10),
+          child: const Text('УЧЕБНАЯ ДЕМОНСТРАЦИЯ • НЕТ ПОДКЛЮЧЕНИЯ К ДИСПЕТЧЕРСКОЙ',
+            textAlign: TextAlign.center, style: TextStyle(color: Color(0xFFFFD18A), fontSize: 11, fontWeight: FontWeight.bold))),
+        Expanded(child: IndexedStack(index: tab, children: [
+          SingleChildScrollView(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            box(const Row(children: [Icon(Icons.local_fire_department, color: Colors.red, size: 32), SizedBox(width: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('ВЫЗОВ № 1527', style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold)),
+                Text('Пожар • демонстрационный вызов'),
+              ])), Chip(label: Text('Учебный'))])),
+            box(const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('г. Ставрополь, ул. Ленина, д. 124', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              SizedBox(height: 8), Text('Жилой дом • 5 этажей'),
+              Text('Предварительно — квартира, 3 этаж'),
+              SizedBox(height: 8), Text('Угроза людям: ЕСТЬ', style: TextStyle(color: Color(0xFFFF7777), fontWeight: FontWeight.bold)),
+              SizedBox(height: 8), Text('АДРЕС И СВЕДЕНИЯ ВЫМЫШЛЕНЫ', style: TextStyle(fontSize: 11, color: Colors.amber)),
+            ])),
+            box(const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('ИНФОРМАЦИЯ', style: TextStyle(fontWeight: FontWeight.bold)),
+              SizedBox(height: 10), Text('Время поступления: 10:17'),
+              Text('Назначенные силы: ПСЧ-1, ПСЧ-3 (пример)'),
+              Text('Связь с диспетчером: не подключена'),
+            ])),
+            const Padding(padding: EdgeInsets.only(bottom: 10), child: Text('СТАТУС РТП', style: TextStyle(fontWeight: FontWeight.bold))),
+            for (var i=0; i<stages.length; i++) Padding(padding: const EdgeInsets.only(bottom: 8),
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: i==0 ? const Color(0xFF168C46) : const Color(0xFF20384E),
+                  minimumSize: const Size.fromHeight(47)),
+                onPressed: () => updateStage(stages[i]),
+                icon: Icon(i==0 ? Icons.check_circle : Icons.radio_button_checked),
+                label: Text(stages[i]))),
+            box(Text('Текущий локальный статус: ${stage}')),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFFB7353F), minimumSize: const Size.fromHeight(50)),
+              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Запрос поддержки требует подключения к серверу'))),
+              icon: const Icon(Icons.sos), label: const Text('Запросить поддержку')),
+          ])),
+          SingleChildScrollView(padding: const EdgeInsets.all(15), child: box(const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('ОБЪЕКТ', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            SizedBox(height: 12), Text('г. Ставрополь, ул. Ленина, д. 124'),
+            Text('Учебный пример. Документы и поэтажные планы появятся после подключения реестра объектов.'),
+          ]))),
+          const WaterMapPage(embedded: true),
+          Center(child: box(const Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.mic, size: 60), SizedBox(height: 15),
+            Text('ДЖАРВИС • ПОМОЩНИК', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            SizedBox(height: 10), Text('Голосовой модуль ещё не подключён.'),
+          ]))),
+          ListView(padding: const EdgeInsets.all(15), children: [
+            const Text('ЛОКАЛЬНЫЙ ЖУРНАЛ СТАТУСОВ', style: TextStyle(fontWeight: FontWeight.bold)),
+            if (events.isEmpty) const ListTile(title: Text('Событий пока нет')),
+            for (final e in events) ListTile(leading: const Icon(Icons.history), title: Text(e)),
+          ]),
+          Center(child: box(const Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.photo_camera, size: 60), SizedBox(height: 15),
+            Text('ФОТОГРАФИИ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            SizedBox(height: 10), Text('Загрузка фотографий на сервер будет добавлена после синхронизации.'),
+          ]))),
+        ])),
+      ]),
+      bottomNavigationBar: SafeArea(child: Container(
+        color: const Color(0xFF0B1B2C), padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 3),
+        child: Row(children: [
+          for (var i=0;i<names.length;i++) Expanded(child: InkWell(
+            onTap: () => setState(() => tab=i),
+            child: Padding(padding: const EdgeInsets.symmetric(vertical: 7),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(icons[i], color: tab==i ? Colors.redAccent : Colors.white70, size: 22),
+                const SizedBox(height: 5),
+                Text(names[i], textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 8, color: tab==i ? Colors.redAccent : Colors.white70)),
+              ])))),
+        ]),
+      )),
+    );
+  }
 }
