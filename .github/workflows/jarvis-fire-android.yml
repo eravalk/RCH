@@ -1,0 +1,40 @@
+name: JARVIS FIRE Android training APK
+on:
+  push:
+    branches: [jarvis-fire-android-build]
+    paths:
+      - 'jarvis_fire_android/**'
+      - '.github/workflows/jarvis-fire-android.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Generate Android project
+        working-directory: jarvis_fire_android
+        run: flutter create --platforms=android --org ru.jarvisfire .
+      - name: Dependencies
+        working-directory: jarvis_fire_android
+        run: flutter pub get
+      - name: Analyze
+        working-directory: jarvis_fire_android
+        run: flutter analyze
+      - name: Build APK
+        working-directory: jarvis_fire_android
+        run: flutter build apk --debug
+      - name: Checksum
+        run: cd jarvis_fire_android/build/app/outputs/flutter-apk && sha256sum app-debug.apk > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jarvis-fire-training-debug-apk
+          path: |
+            jarvis_fire_android/build/app/outputs/flutter-apk/app-debug.apk
+            jarvis_fire_android/build/app/outputs/flutter-apk/SHA256SUMS.txt
+          if-no-files-found: error
