@@ -21,7 +21,7 @@ try:
 except ImportError:
     QWebEngineView = None
 
-HASH = "5e730980a8eef004aa65f3b8309f9ccd623abbcbd429b53b87b24bd6bb491c58"
+HASH = "5994471abb01112afcc18159f6cc74b4f511b99806da59b3caf5a9c173cacfc5"
 HOME = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "JarvisFireTraining"
 HOME.mkdir(parents=True, exist_ok=True)
 DB = HOME / "dispatcher.sqlite3"
