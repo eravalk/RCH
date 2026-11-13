@@ -5,6 +5,11 @@ on:
     paths:
       - 'jarvis_fire_android/**'
       - '.github/workflows/jarvis-fire-android.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'jarvis_fire_android/**'
+      - '.github/workflows/jarvis-fire-android.yml'
   workflow_dispatch:
 jobs:
   build:
