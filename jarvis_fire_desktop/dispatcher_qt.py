@@ -178,24 +178,49 @@ class Dispatcher(QMainWindow):
             for j,value in enumerate(row):
                 t.setItem(n,j,QTableWidgetItem(str(value)))
     def dashboard(self):
-        w,l=self.page("Пульт диспетчера","Оперативная сводка, активные вызовы и карта района")
+        w,l=self.page("Пульт диспетчера","Активные вызовы слева · карточка выбранного вызова справа")
         stats=QHBoxLayout()
         self.count_label=QLabel("Активные вызовы: 0")
         self.count_label.setObjectName("title")
         stats.addWidget(self.count_label)
         stats.addStretch()
-        new=QPushButton("+ НОВЫЙ ВЫЗОВ")
+        new=QPushButton("+ СОЗДАТЬ ВЫЗОВ")
         new.setObjectName("primary")
         new.clicked.connect(self.new_call)
         stats.addWidget(new)
         l.addLayout(stats)
         splitter=QSplitter(Qt.Orientation.Horizontal)
+        left=QWidget()
+        left_layout=QVBoxLayout(left)
+        left_layout.addWidget(QLabel("АКТИВНЫЕ ВЫЗОВЫ"))
         self.dashboard_table=self.table(["№","Время","Адрес","Тип","Статус"])
-        splitter.addWidget(self.dashboard_table)
-        splitter.addWidget(self.map_widget())
-        splitter.setSizes([520,700])
+        self.dashboard_table.itemSelectionChanged.connect(self.show_call_details)
+        left_layout.addWidget(self.dashboard_table)
+        right=QFrame()
+        right.setObjectName("card")
+        right_layout=QVBoxLayout(right)
+        right_layout.addWidget(QLabel("КАРТОЧКА ВЫЗОВА"))
+        self.call_details=QTextEdit()
+        self.call_details.setReadOnly(True)
+        self.call_details.setPlaceholderText("Выберите вызов слева, чтобы увидеть его подробности.")
+        right_layout.addWidget(self.call_details)
+        right_layout.addWidget(QLabel("Назначение получателей РТП: требуется подключение к серверу."))
+        splitter.addWidget(left)
+        splitter.addWidget(right)
+        splitter.setSizes([540,720])
         l.addWidget(splitter,1)
         return w
+    def show_call_details(self):
+        selected=self.dashboard_table.selectedItems()
+        if not selected:
+            self.call_details.clear()
+            return
+        call_id=int(self.dashboard_table.item(selected[0].row(),0).text())
+        record=self.conn.execute(
+            "SELECT id,time,address,kind,description,status FROM calls WHERE id=?",(call_id,)).fetchone()
+        if record:
+            self.call_details.setPlainText(
+                "ВЫЗОВ №{}\\n\\nВремя: {}\\nАдрес: {}\\nКатегория: {}\\n\\nОписание:\\n{}\\n\\nСтатус: {}".format(*record))
     def calls_page(self):
         w,l=self.page("Вызовы и журнал событий","Регистрация, сопровождение и закрытие учебных происшествий")
         actions=QHBoxLayout()
