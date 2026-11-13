@@ -60,7 +60,7 @@ def database():
     conn.execute("CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY, call_id INTEGER, time TEXT, event TEXT)")
     conn.execute("CREATE TABLE IF NOT EXISTS objects (id INTEGER PRIMARY KEY, name TEXT, address TEXT, notes TEXT)")
     conn.execute("CREATE TABLE IF NOT EXISTS water (id INTEGER PRIMARY KEY, name TEXT, lat REAL, lon REAL, notes TEXT)")
-    if not conn.execute("SELECT 1 FROM water LIMIT 1").fetchone():
+    if False:  # Do not seed fictitious water sources into the real registry
         conn.executemany("INSERT INTO water(name,lat,lon,notes) VALUES (?,?,?,?)", [
             ("Учебный гидрант №1",45.0433,41.969,"Вымышленная точка"),
             ("Учебный гидрант №2",45.0461,41.9728,"Вымышленная точка"),
@@ -249,11 +249,59 @@ class Dispatcher(QMainWindow):
         return w
     def water_page(self):
         w,l=self.page("Водоисточники","Реестр учебных гидрантов и координат; реальные данные не загружены")
-        t=self.table(["Название","Широта","Долгота","Примечание"])
+        import_btn=QPushButton("Импортировать Excel (.xlsx) — учебный локальный реестр")\n        import_btn.clicked.connect(self.import_water_excel)\n        l.addWidget(import_btn)\n        self.water_table=self.table(["Название","Широта","Долгота","Примечание"])\n        t=self.water_table
         rows=self.conn.execute("SELECT name,lat,lon,notes FROM water").fetchall()
         self.fill(t,rows)
         l.addWidget(t)
         return w
+    def import_water_excel(self):
+        try:
+            from openpyxl import load_workbook
+        except ImportError:
+            QMessageBox.warning(self,"Excel","Модуль openpyxl отсутствует в сборке")
+            return
+        path,_=QFileDialog.getOpenFileName(self,"Импорт водоисточников","","Excel (*.xlsx)")
+        if not path:
+            return
+        try:
+            wb=load_workbook(path,read_only=True,data_only=True)
+            sheet=wb.active
+            rows=sheet.iter_rows(values_only=True)
+            header=[str(v).strip() if v is not None else "" for v in next(rows)]
+            required=("Название","Широта","Долгота")
+            if any(x not in header for x in required):
+                raise ValueError("Не найдены обязательные колонки: "+", ".join(required))
+            positions={name:header.index(name) for name in header if name}
+            items=[]
+            for index,row in enumerate(rows,start=2):
+                if index>10001:
+                    raise ValueError("Лимит: 10000 строк")
+                record={name:row[pos] if pos<len(row) else None for name,pos in positions.items()}
+                name=str(record.get("Название") or record.get("Наименование") or "").strip()
+                if not name:
+                    continue
+                lat_raw=record.get("Широта")
+                lon_raw=record.get("Долгота")
+                if lat_raw is None or lon_raw is None or str(lat_raw).strip()=="" or str(lon_raw).strip()=="":
+                    raise ValueError(f"Строка {index}: отсутствуют координаты")
+                lat=float(str(lat_raw).replace(",","."))
+                lon=float(str(lon_raw).replace(",","."))
+                if not (-90<=lat<=90 and -180<=lon<=180):
+                    raise ValueError(f"Строка {index}: координаты вне диапазона")
+                notes=json.dumps(record,ensure_ascii=False,default=str)
+                items.append((name,lat,lon,notes))
+            if not items:
+                raise ValueError("В таблице нет заполненных записей")
+            self.conn.execute("BEGIN")
+            self.conn.execute("DELETE FROM water")
+            self.conn.executemany("INSERT INTO water(name,lat,lon,notes) VALUES (?,?,?,?)",items)
+            self.conn.commit()
+            self.fill(self.water_table,self.conn.execute("SELECT name,lat,lon,notes FROM water").fetchall())
+            QMessageBox.information(self,"Импорт",f"Импортировано {len(items)} записей в локальную учебную базу. Данные не переданы на Android.")
+        except Exception as e:
+            self.conn.rollback()
+            QMessageBox.critical(self,"Ошибка импорта",str(e))
+
     def objects_page(self):
         w,l=self.page("Объекты","Реестр объектов; заполнение и серверная синхронизация в разработке")
         t=self.table(["Название","Адрес","Примечание"])
