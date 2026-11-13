@@ -1,0 +1,42 @@
+name: JARVIS FIRE Windows training EXE
+on:
+  push:
+    branches: [jarvis-fire-android-build]
+    paths:
+      - 'jarvis_fire_desktop/**'
+      - '.github/workflows/jarvis-fire-windows.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'jarvis_fire_desktop/**'
+      - '.github/workflows/jarvis-fire-windows.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify Python syntax
+        run: python -m py_compile jarvis_fire_desktop/demo_dispatcher.py
+      - name: Install PyInstaller
+        run: python -m pip install --disable-pip-version-check pyinstaller==6.16.0
+      - name: Build standalone Windows EXE
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name JARVIS_FIRE_Training jarvis_fire_desktop/demo_dispatcher.py
+      - name: Verify EXE
+        shell: pwsh
+        run: |
+          if (-not (Test-Path dist/JARVIS_FIRE_Training.exe)) { throw "EXE not generated" }
+          Get-FileHash dist/JARVIS_FIRE_Training.exe -Algorithm SHA256 | Format-List | Out-File -Encoding utf8 dist/SHA256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jarvis-fire-windows-training-exe
+          path: |
+            dist/JARVIS_FIRE_Training.exe
+            dist/SHA256.txt
+          if-no-files-found: error
