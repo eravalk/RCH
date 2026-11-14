@@ -20,6 +20,13 @@ static class RefreshPreviewChecks
         var partialState=new AppState{Accounts=[partialAccount],Entries=[new(){AccountId="partial",Path="unreadable/keep.txt",Name="keep.txt"}]};
         CatalogService.Merge(partialState,partialAccount,new CatalogScan([new(){AccountId="partial",Path="readable.txt",Name="readable.txt"}],[""]));
         check(partialState.Entries.Count==2&&partialAccount.LastCheck==oldCheck,"Partial recursive listing preserves missing cached records without marking a full check successful");
+        var syncing=new Account{Id="sync"};var downloading=new CloudEntry{AccountId="sync",Name="file.txt",Path="file.txt",ETag="v1"};
+        var syncingState=new AppState{Accounts=[syncing],Entries=[downloading]};
+        CatalogService.Merge(syncingState,syncing,(IReadOnlyList<CloudEntry>)[new(){AccountId="sync",Name="file.txt",Path="file.txt",ETag="v1"}]);
+        downloading.SavedETag="v1";downloading.Downloaded=DateTimeOffset.Now;downloading.Status=LocalStatus.Current;CatalogService.RecordDownload(syncingState,downloading);
+        check(syncingState.Entries.Single().Status==LocalStatus.Current&&syncingState.Entries.Single().Downloaded!=null,"Download completion updates the current catalog record after concurrent refresh");
+        CatalogService.Merge(syncingState,syncing,(IReadOnlyList<CloudEntry>)[new(){AccountId="sync",Name="file.txt",Path="file.txt",ETag="v2"}]);CatalogService.RecordDownload(syncingState,downloading);
+        check(syncingState.Entries.Single().Status==LocalStatus.Mismatch&&syncingState.Entries.Single().SavedETag=="v1","A newer cloud revision is not falsely marked synchronized by an older in-flight download");
         var account=new Account();var entry=new CloudEntry{Name="sample.png",Path="sample.png",Size=3,ETag="1"};
         var cache=new PreviewCache(Path.Combine(root,"preview-tests"));var downloads=new BlobProvider("abc");
         var paths=await Task.WhenAll(Enumerable.Range(0,4).Select(_=>cache.GetAsync(account,entry,downloads,10,20,default)));

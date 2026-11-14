@@ -428,7 +428,7 @@ public sealed partial class MainView : UserControl
         Save();
         var job=new Job(f.Name,a.Title+" → ПК"){State="В очереди"};_jobs.Add(job);RenderQueue();
         var acquired=false;
-        try{await WaitForTransfer(job.Token.Token);acquired=true;job.State="Скачивание";await new LocalFiles().DownloadAsync(a,f,provider,mode,new Progress<long>(n=>{job.Percent=f.Size==0?0:n*100d/f.Size;job.State=Format.Bytes(n)+" из "+f.SizeLabel;RenderQueue();}),job.Token.Token);job.Percent=100;job.State="Готово";_state.Downloads.Remove(pending);Save();RefreshCatalogView();SystemNotice("Скачивание завершено",f.Name);}
+        try{await WaitForTransfer(job.Token.Token);acquired=true;job.State="Скачивание";await new LocalFiles().DownloadAsync(a,f,provider,mode,new Progress<long>(n=>{job.Percent=f.Size==0?0:n*100d/f.Size;job.State=Format.Bytes(n)+" из "+f.SizeLabel;RenderQueue();}),job.Token.Token);CatalogService.RecordDownload(_state,f);job.Percent=100;job.State="Готово";_state.Downloads.Remove(pending);Save();RefreshCatalogView();SystemNotice("Скачивание завершено",f.Name);}
         catch(Exception e){job.State=e is OperationCanceledException?"Приостановлено · повтор начнётся заново":"Ошибка: "+e.Message;throw;}
         finally{_downloading.Remove(key);if(acquired)_activeTransfers--;RenderQueue();}
     }

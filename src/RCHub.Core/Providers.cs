@@ -151,6 +151,13 @@ public sealed class CatalogService
         }
         return new(result,failed);
     }
+    public static void RecordDownload(AppState state,CloudEntry completed)
+    {
+        var current=state.Entries.FirstOrDefault(f=>f.AccountId==completed.AccountId&&f.Path==completed.Path);
+        if(current==null)return;
+        current.Downloaded=completed.Downloaded;current.SavedETag=completed.SavedETag;current.SuppressAutoDownload=false;
+        current.Status=current.ETag==completed.SavedETag?LocalStatus.Current:current.Kind=="Программы"?LocalStatus.NewVersion:LocalStatus.Mismatch;
+    }
     public static void Merge(AppState state,Account account,CatalogScan scan)
     {
         var previousCheck=account.LastCheck;
