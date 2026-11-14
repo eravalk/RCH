@@ -5,7 +5,7 @@ namespace RCHub.Core;
 
 public interface IAccountProvider : ICloudProvider, IDisposable { }
 
-public sealed class RcloneProvider(Account account, string executable, string config, Action<string>? trace=null) : IAccountProvider, IQuotaProvider
+public sealed partial class RcloneProvider(Account account, string executable, string config, Action<string>? trace=null,Settings? settings=null) : IAccountProvider, IQuotaProvider
 {
     private string Target(string path)
     {
@@ -28,6 +28,8 @@ public sealed class RcloneProvider(Account account, string executable, string co
     private async Task RunAsync(string[] args, Stream? output, CancellationToken ct)
     {
         var start = Command(executable, config, args);
+        var rate=args[0]=="copyto"?settings?.UploadBytesPerSecond:args[0]=="cat"?settings?.DownloadBytesPerSecond:0;
+        if(rate is >0){start.ArgumentList.Add("--bwlimit");start.ArgumentList.Add(rate.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)+"B");}
         start.RedirectStandardError = start.RedirectStandardOutput = true;
         start.CreateNoWindow = true;
         start.StandardErrorEncoding = System.Text.Encoding.UTF8;
@@ -75,7 +77,7 @@ public sealed class RcloneProvider(Account account, string executable, string co
             var size = item.GetProperty("Size").GetInt64();
             entries.Add(new CloudEntry { ProviderId=item.TryGetProperty("ID",out var id)?id.GetString():null, Name = name, Path = Paths.Combine(folder, name),
                 AccountId = account.Id, IsFolder = item.GetProperty("IsDir").GetBoolean(),
-                Size = Math.Max(0, size), Modified = modified, ETag = $"{modified.UtcTicks}:{size}" });
+                Size = Math.Max(0, size), Modified = modified.Year==2000&&modified.Month==1&&modified.Day==1&&modified.TimeOfDay==TimeSpan.Zero?null:modified, ETag = $"{modified.UtcTicks}:{size}" });
         }
         return entries;
     }
@@ -86,8 +88,11 @@ public sealed class RcloneProvider(Account account, string executable, string co
         await RunAsync(["about",Target(""),"--json"],output,ct);
         return CloudQuota.Parse(output.ToArray());
     }
-    public Task DownloadAsync(string path, Stream destination, IProgress<long>? progress, CancellationToken ct) =>
-        RunAsync(["cat", Target(path)], destination, ct);
+    public async Task DownloadAsync(string path, Stream destination, IProgress<long>? progress, CancellationToken ct)
+    {
+        using var reporting=new RateLimitedStream(destination,0,progress);
+        await RunAsync(["cat",Target(path)],reporting,ct);
+    }
 
     public async Task UploadAsync(string path, Stream source, CancellationToken ct)
     {

@@ -34,6 +34,7 @@ public sealed class StateStore
         var value = JsonSerializer.Deserialize<SettingsConfig>(json) ?? throw new ArgumentException("Пустая конфигурация");
         if (value.Format != "RC-Hub-settings" || value.Version != 1) throw new ArgumentException("Неизвестный формат конфигурации");
         var s = value.Settings ?? throw new ArgumentException("Настройки отсутствуют");
+        if (s.ScanConcurrency is <1 or >8 || s.AccountConcurrency is <1 or >4 || s.TransferConcurrency is <1 or >8 || s.RetryCount is <0 or >5 || s.PreviewCacheBytes is <10_000_000 or >10_000_000_000 || s.PreviewFileBytes is <100_000 or >200_000_000 || s.PreviewFileBytes>s.PreviewCacheBytes || !Enum.IsDefined(s.ConflictAction)) throw new ArgumentException("Недопустимые параметры синхронизации или предпросмотра");
         if (s.Theme is not ("Light" or "Dark" or "System") || !double.IsFinite(s.TextSize) || !double.IsFinite(s.RowHeight) || !double.IsFinite(s.IconSize) || !double.IsFinite(s.ThumbnailSize) || s.TextSize is < 10 or > 24 || s.RowHeight is < 40 or > 100 || s.IconSize is < 16 or > 48 || s.ThumbnailSize is < 80 or > 260 || s.DownloadBytesPerSecond < 0 || s.UploadBytesPerSecond < 0) throw new ArgumentException("Недопустимые настройки");
         return s;
     }
@@ -44,7 +45,7 @@ public static class RefreshPolicy
     public static TimeSpan Interval(Account account, DateTimeOffset now)
     {
         var inactive = now - (account.LastUsed ?? now);
-        return inactive.TotalDays switch { >= 90 => TimeSpan.FromDays(30), >= 30 => TimeSpan.FromDays(7), >= 7 => TimeSpan.FromDays(1), _ => TimeSpan.FromHours(1) };
+        return inactive.TotalDays switch { >= 90 => TimeSpan.FromDays(30), >= 30 => TimeSpan.FromDays(7), >= 7 => TimeSpan.FromDays(1), _ => TimeSpan.FromMinutes(Math.Clamp(account.RefreshMinutes,1,1440)) };
     }
     public static bool Due(Account account, DateTimeOffset now) => account.LastCheck is null || account.AdaptiveRefresh && now - account.LastCheck >= Interval(account, now);
 }

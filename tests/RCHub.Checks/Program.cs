@@ -118,6 +118,7 @@ using(var payload=new MemoryStream()) {
     Check(!Directory.EnumerateFiles(Path.Combine(root,"bad-update")).Any(),"Failed update checksum leaves no archive or partial file");
     Reject(()=>ReleaseDownload.SaveAsync(client,"https://other.test/update.zip",root,null,null,default).GetAwaiter().GetResult(),"Update rejects a download outside the project releases");
 }
+await RefreshPreviewChecks.Run(root,Check);
 Console.WriteLine($"{count} checks passed");
 }finally{Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();Directory.Delete(root,true);}
 static string Resource(string href)=>$"<d:response><d:href>{href}</d:href><d:propstat><d:prop><d:getcontentlength>3</d:getcontentlength></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>";

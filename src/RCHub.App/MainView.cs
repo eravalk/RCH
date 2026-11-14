@@ -82,23 +82,8 @@ public sealed partial class MainView : UserControl
             return;
         }
 
+        StartRefreshTimer();
         await RefreshDueAccounts();
-    }
-    private async Task RefreshDueAccounts()
-    {
-        foreach (var account in _state.Accounts.ToArray())
-        {
-            if (account.IsDemo || !RefreshPolicy.Due(account, DateTimeOffset.Now)) continue;
-            try
-            {
-                await Refresh(account);
-            }
-            catch (Exception error)
-            {
-                LogEvent(ProviderError.Describe(account.Provider.ToString(),"Индексация",error.Message,1));
-                _message.Text=account.Title + " · Не удалось обновить каталог. " + error.Message;
-            }
-        }
     }
 
     public void Save()
@@ -165,9 +150,9 @@ public sealed partial class MainView : UserControl
             foreach(var a in accounts)
             {
                 var icon=AccountIcon(a,30);var name=Text(a.Name==a.Service?a.Name:a.Service+" · "+a.Name,13,Brushes.White,true);var title=Row(icon,name);var p=new StackPanel{Spacing=5};p.Children.Add(title);
-                var usageBar=new ProgressBar{Minimum=0,Maximum=100,Value=a.UsedPercent,Height=3,Foreground=B(a.Accent),Background=B("#41516A"),Margin=new Thickness(32,4,0,0)};usageBar.IsVisible=a.QuotaKnown;p.Children.Add(usageBar);
-                var cap=Text(a.CapacityLabel,10,B("#B7C6DC"));ToolTip.SetTip(cap,a.QuotaDescription);cap.Margin=new Thickness(32,0,0,0);p.Children.Add(cap);
-                var check=Text(a.AdaptiveRefresh?a.CheckLabel:"Вручную · "+a.CheckLabel,9,B("#8FA3BF"));check.Margin=new Thickness(32,0,0,0);p.Children.Add(check);
+                var usageBar=new ProgressBar{Minimum=0,Maximum=100,Value=a.UsedPercent,Height=3,Foreground=B(a.Accent),Background=B("#41516A"),Margin=new Thickness(32,4,0,0)};usageBar.Tag="quota:"+a.Id;usageBar.IsVisible=a.QuotaKnown;p.Children.Add(usageBar);
+                var cap=Text(a.CapacityLabel,10,B("#B7C6DC"));cap.Tag="quota:"+a.Id;ToolTip.SetTip(cap,a.QuotaDescription);cap.Margin=new Thickness(32,0,0,0);p.Children.Add(cap);
+                var check=Text(a.AdaptiveRefresh?a.CheckLabel:"Вручную · "+a.CheckLabel,9,B("#8FA3BF"));check.Tag="status:"+a.Id;check.Margin=new Thickness(32,0,0,0);p.Children.Add(check);
                 var button=Btn("",()=>Navigate(a.Id,""));button.Content=p;button.Classes.Add("nav");button.HorizontalAlignment=HorizontalAlignment.Stretch;button.Tag=a;
                 if(Current.AccountId==a.Id&&Current.Page=="files")button.Background=B("#204A92");
                 button.PointerPressed+=(_,e)=>StartDrag(a,e);
@@ -220,7 +205,7 @@ public sealed partial class MainView : UserControl
         var top=new Grid{ColumnDefinitions=new ColumnDefinitions("Auto,*,280")};top.Children.Add(Btn("←",()=>Navigate(Current.AccountId,Paths.Parent(Current.Path))));
         var path=Text(Current.Page=="files"?CurrentAccount.Title+"  /  "+(Current.Path.Length==0?"Мои файлы":Current.Path):Current.Page=="favorites"?"Избранное":Current.Page=="trash"?"Корзина":"Все хранилища",12,Muted);path.Margin=new Thickness(12,0);var crumb=new Border{Child=path,Background=Surface,BorderBrush=Line,BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(5),Margin=new Thickness(8,0)};Grid.SetColumn(crumb,1);top.Children.Add(crumb);
         var search=new TextBox{Watermark="Поиск по всем хранилищам",Text=_query};Grid.SetColumn(search,2);top.Children.Add(search);search.TextChanged+=(_,_)=>{_query=search.Text??"";RenderFiles();};root.Children.Add(top);
-        var commands=new Grid{ColumnDefinitions=new ColumnDefinitions("*,Auto")};var actions=Row(AsyncBtn("↑  Загрузить",Upload,true),Btn("＋  Папка",NewFolder),AsyncBtn("↻  Обновить",()=>Refresh(CurrentAccount)));if(WebLocation.For(CurrentAccount)!=null)actions.Children.Add(Btn("Веб-просмотр",()=>ShowWeb(CurrentAccount)));actions.Children.Add(Btn("⋯",()=>AccountSettings(CurrentAccount)));commands.Children.Add(actions);
+        var commands=new Grid{ColumnDefinitions=new ColumnDefinitions("*,Auto")};var actions=Row(AsyncBtn("↑  Загрузить",Upload,true),Btn("＋  Папка",NewFolder),AsyncBtn("↻  Обновить",()=>Refresh(CurrentAccount)));if(WebLocation.For(CurrentAccount)!=null)actions.Children.Add(Btn("Веб-просмотр",()=>ShowWeb(CurrentAccount)));actions.Children.Add(Btn("Настройки диска / значок",()=>AccountSettings(CurrentAccount)));commands.Children.Add(actions);
         var views=Row(Btn(_state.Settings.View=="List"?"▦ Сетка":"☷ Список",()=>{_state.Settings.View=_state.Settings.View=="List"?"Grid":"List";Render();Save();}),Btn("◧ Просмотр",()=>{_preview=!_preview;Render();}));Grid.SetColumn(views,1);commands.Children.Add(views);root.Children.Add(commands);
         var filter=Row();var kinds=Combo(new[]{"Все","Изображения","Видео","Музыка","Документы","Архивы","Программы"},_kind,x=>{_kind=x;RenderFiles();});kinds.MinWidth=145;filter.Children.Add(kinds);
         filter.Children.Add(Combo(new[]{"Все состояния","Файл актуален","Только в облаке","Не совпадает","Новая версия","Удалён с устройства"},_statusFilter,x=>{_statusFilter=x;RenderFiles();}));
@@ -239,13 +224,13 @@ public sealed partial class MainView : UserControl
     }
     private void RenderFiles()
     {
-        _fileArea.Children.Clear();var entries=Visible().ToList();
+        _fileArea.Children.Clear();var entries=new ObservableCollection<CloudEntry>(Visible());
         if(_state.Settings.View=="Grid")
         {
             var wrap=new WrapPanel{Orientation=Orientation.Horizontal,ItemWidth=_state.Settings.ThumbnailSize+25,Margin=new Thickness(18,0)};
             foreach(var f in entries)
             {
-                var content=Stack(FileSymbol.Create(f,54),Text(f.Name,12),StatusButton(f));
+                var content=Stack(Thumbnail(f,54),Text(f.Name,12),StatusButton(f));
                 var tile=new Border{Child=content,Padding=new Thickness(12),Margin=new Thickness(5),Background=Surface,CornerRadius=new CornerRadius(6),MinHeight=_state.Settings.ThumbnailSize,Tag=f};
                 tile.Tapped+=(_,_)=>{if(!_dragging)SelectEntry(f);};tile.DoubleTapped+=(_,e)=>{if(!_dragging){Open(f);e.Handled=true;}};tile.PointerPressed+=(_,e)=>StartDrag(f,e);wrap.Children.Add(tile);
             }
@@ -273,7 +258,7 @@ public sealed partial class MainView : UserControl
         if(entries.Count==0 && !(Current.Page=="files"&&CurrentAccount.CatalogError.Length>0))_fileArea.Children.Add(new Border{Child=Stack(Text("Пока нет файлов",21,Muted),Text(_query.Length>0?"Измените поисковый запрос":"Перетащите файлы или нажмите «Загрузить»",12,Muted)),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center});
         if(_preview)RenderDetail();
     }
-    private Control FileMark(CloudEntry f)=>FileSymbol.Create(f,_state.Settings.IconSize+10);
+    private Control FileMark(CloudEntry f)=>Thumbnail(f,_state.Settings.IconSize+10);
     private void ShowWeb(Account account,CloudEntry? file=null)
     {
         var uri=WebLocation.For(account,file);
@@ -345,11 +330,11 @@ public sealed partial class MainView : UserControl
         if(f is null)_details.Children.Add(Text("Выберите файл",12,Muted));
         else
         {
-            Control preview=Card(FileSymbol.Create(f,80),new Thickness(35));
+            Control preview=CloudPreview(f);
             var a=_state.Accounts.First(x=>x.Id==f.AccountId);
             if(!a.IsDemo&&!string.IsNullOrWhiteSpace(a.LocalFolder))
             {
-                try{var local=Paths.LocalPath(a.LocalFolder,f.Path);if(File.Exists(local)&&f.Kind=="Изображения"){if(!_bitmaps.ContainsKey(local))_bitmaps[local]=new Bitmap(local);preview=new Image{Source=_bitmaps[local],MaxHeight=230,Stretch=Stretch.Uniform};}else if(File.Exists(local)&&Path.GetExtension(f.Name).Equals(".xlsx",StringComparison.OrdinalIgnoreCase)){
+                try{var local=Paths.LocalPath(a.LocalFolder,f.Path);if(File.Exists(local)&&Path.GetExtension(f.Name).Equals(".xlsx",StringComparison.OrdinalIgnoreCase)){
                     var rows=SheetPreview.Read(local);
                     if(rows.Count>0){
                         var sheet=new StackPanel();
@@ -380,28 +365,11 @@ public sealed partial class MainView : UserControl
     private string RcloneConfig => Path.Combine(_store.DirectoryPath, "connections.conf");
     private IAccountProvider Provider(Account a)
     {
-        if (a.Provider == ProviderKind.Rclone) return new RcloneProvider(a, RcloneExe, RcloneConfig,LogEvent);
+        if (a.Provider == ProviderKind.Rclone) return new RcloneProvider(a, RcloneExe, RcloneConfig,LogEvent,_state.Settings);
         var password=_sessionSecrets.GetValueOrDefault(a.Id);
         if(password is null&&OperatingSystem.IsWindows())password=new WindowsSecretStore(_store.DirectoryPath).Read(a.Id);
         if(password is null&&a.UserName.Length>0)throw new UnauthorizedAccessException("Введите пароль в настройках подключения");
-        return new WebDavProvider(a,password??"");
-    }
-    private async Task Refresh(Account a)
-    {
-        if(a.IsDemo){a.LastCheck=DateTimeOffset.Now;Save();Render();Notify("Демо-каталог обновлён. Внешние сервисы не запрашивались.");return;}
-        var operation=Guid.NewGuid().ToString("N");
-        LogEvent($"Индексация · account={a.Id} op={operation} service={a.Service} · начало");
-        using var provider=Provider(a);
-        await RefreshQuota(a,provider);
-        if(a.Service=="Google Диск")try{await GoogleProfile.LoadAsync(a,RcloneConfig,Path.Combine(_store.DirectoryPath,"icons"));Save();}catch(Exception e) when(e is HttpRequestException or IOException or TaskCanceledException or JsonException or KeyNotFoundException) { }
-        _message.Text="Индексация: "+a.Title;
-        CatalogScan incoming;
-        try { incoming=await new CatalogService().ScanAsync(provider,new Progress<int>(n=>_message.Text="Индексация: "+a.Name+" · "+n+" объектов"),CancellationToken.None); }
-        catch(Exception e) when(e is IOException or UnauthorizedAccessException or HttpRequestException or JsonException) {
-            a.CatalogError="Не удалось прочитать корневой каталог. "+e.Message;Save();if(_modal==null)Render();throw;
-        }
-        LogEvent($"Индексация · account={a.Id} op={operation} · завершена · объектов {incoming.Entries.Count} · недоступно папок {incoming.FailedFolders.Count}");
-        CatalogService.Merge(_state,a,incoming);Save();if(_modal==null)Render();_message.Text=a.CatalogError.Length>0?a.CatalogError:"Каталог проверен: "+incoming.Entries.Count+" объектов";await SaveLocalCopies(a);
+        return new TransferProvider(new WebDavProvider(a,password??""),_state.Settings);
     }
     private async Task RefreshQuota(Account account,IAccountProvider provider)
     {
@@ -425,20 +393,23 @@ public sealed partial class MainView : UserControl
         try
         {
             var used = await Task.Run(() => StorageStatistics.DirectorySize(account.LocalFolder));
+            var tasks=new List<Task>();
             foreach (var file in _state.Entries.Where(f => f.AccountId == account.Id && !f.IsFolder && !f.IsDeleted).ToArray())
             {
                 if (!account.SaveLocally || !_state.Accounts.Contains(account)) break;
-                if (file.SuppressAutoDownload || file.Status != LocalStatus.CloudOnly || file.Size > account.MaxFileBytes) continue;
+                if (file.SuppressAutoDownload || file.Status is not (LocalStatus.CloudOnly or LocalStatus.Mismatch or LocalStatus.NewVersion) || file.Size > account.MaxFileBytes) continue;
                 var path = Paths.LocalPath(account.LocalFolder, file.Path);
-                if (File.Exists(path) || _state.Downloads.Any(d => d.AccountId == account.Id && d.Path == file.Path)) continue;
+                if ((File.Exists(path)&&file.Status==LocalStatus.CloudOnly) || _state.Downloads.Any(d => d.AccountId == account.Id && d.Path == file.Path)) continue;
                 if (file.Size > account.LocalLimitBytes - used)
                 {
                     _message.Text=account.Title + " · Достигнут лимит. Ручное скачивание доступно.";
                     break;
                 }
-                await Download(file, ExistingFileAction.RenameOld);
                 used += file.Size;
+                tasks.Add(Run(()=>Download(file,_state.Settings.ConflictAction)));
+                if(tasks.Count>=Math.Clamp(_state.Settings.TransferConcurrency,1,8)){await Task.WhenAll(tasks);tasks.Clear();}
             }
+            await Task.WhenAll(tasks);
         }
         finally { _savingLocally.Remove(account.Id); }
     }
@@ -455,10 +426,11 @@ public sealed partial class MainView : UserControl
         _state.Downloads.RemoveAll(d => d.AccountId == a.Id && d.Path == f.Path);
         _state.Downloads.Add(pending);
         Save();
-        var job=new Job(f.Name,a.Title+" → ПК");_jobs.Add(job);RenderQueue();
-        try{await new LocalFiles().DownloadAsync(a,f,provider,mode,new Progress<long>(n=>{job.Percent=f.Size==0?0:n*100d/f.Size;job.State=Format.Bytes(n)+" из "+f.SizeLabel;RenderQueue();}),job.Token.Token);job.Percent=100;job.State="Готово";_state.Downloads.Remove(pending);Save();RenderFiles();}
+        var job=new Job(f.Name,a.Title+" → ПК"){State="В очереди"};_jobs.Add(job);RenderQueue();
+        var acquired=false;
+        try{await WaitForTransfer(job.Token.Token);acquired=true;job.State="Скачивание";await new LocalFiles().DownloadAsync(a,f,provider,mode,new Progress<long>(n=>{job.Percent=f.Size==0?0:n*100d/f.Size;job.State=Format.Bytes(n)+" из "+f.SizeLabel;RenderQueue();}),job.Token.Token);job.Percent=100;job.State="Готово";_state.Downloads.Remove(pending);Save();RefreshCatalogView();SystemNotice("Скачивание завершено",f.Name);}
         catch(Exception e){job.State=e is OperationCanceledException?"Приостановлено · повтор начнётся заново":"Ошибка: "+e.Message;throw;}
-        finally{_downloading.Remove(key);RenderQueue();}
+        finally{_downloading.Remove(key);if(acquired)_activeTransfers--;RenderQueue();}
     }
     private async Task DemoTransfer(string name,string route)
     {
@@ -466,7 +438,7 @@ public sealed partial class MainView : UserControl
     }
     private void RenderQueue()
     {
-        _queuePanel.Children.Clear();_queuePanel.Children.Add(Row(Btn((_queueOpen?"▾ ":"▸ ")+"Текущие передачи · "+_jobs.Count,()=>{_queueOpen=!_queueOpen;RenderQueue();}),Btn("Приостановить всё",()=>{foreach(var j in _jobs.Where(j=>j.Percent<100)){j.Token.Cancel();j.State="Приостановлено";}RenderQueue();})));
+        _queuePanel.Children.Clear();_queuePanel.Children.Add(Row(Btn((_queueOpen?"▾ ":"▸ ")+"Текущие передачи · "+(_jobs.Count+_state.Downloads.Count(d=>!_downloading.Contains((d.AccountId,d.Path)))),()=>{_queueOpen=!_queueOpen;RenderQueue();}),Btn("Приостановить всё",()=>{foreach(var j in _jobs.Where(j=>j.Percent<100)){j.Token.Cancel();j.State="Приостановлено";}RenderQueue();})));
         if(!_queueOpen)return;
         foreach (var pending in _state.Downloads.Where(d => !_downloading.Contains((d.AccountId,d.Path))).ToArray())
         {
@@ -612,7 +584,7 @@ public sealed partial class MainView : UserControl
             foreach(var account in _state.Accounts.Where(a=>string.IsNullOrWhiteSpace(a.LocalFolder)))
                 account.LocalFolder=AccountFolder(root,account);
             _state.LocalRoot=root;_state.Settings.FirstRunComplete=true;Save();CloseModal();Render();
-            if(_state.Accounts.Count==0)Connect();else await RefreshDueAccounts();
+            StartRefreshTimer();if(_state.Accounts.Count==0)Connect();else await RefreshDueAccounts();
         },true);
         next.IsEnabled=false;
         folder.TextChanged+=(_,_)=>next.IsEnabled=!string.IsNullOrWhiteSpace(folder.Text);
@@ -634,15 +606,32 @@ public sealed partial class MainView : UserControl
         var iconSize=new Slider{Minimum=16,Maximum=48,Value=s.IconSize,TickFrequency=1,IsSnapToTickEnabled=true};
         var rowHeight=new Slider{Minimum=40,Maximum=100,Value=s.RowHeight,TickFrequency=1,IsSnapToTickEnabled=true};
         var thumbnails=new Slider{Minimum=80,Maximum=260,Value=s.ThumbnailSize,TickFrequency=5,IsSnapToTickEnabled=true};
-        var notify=new CheckBox{Content="Уведомления Windows (адаптер появится в следующей сборке)",IsChecked=s.Notifications};
-        var auto=new CheckBox{Content="Автозапуск Windows (адаптер появится в следующей сборке)",IsChecked=s.AutoStart};
+        var notify=new CheckBox{Content="Уведомления о завершении скачивания",IsChecked=s.Notifications};
+        var auto=new CheckBox{Content="Запускать RCH при входе в Windows",IsChecked=s.AutoStart};
         var download=new NumericUpDown{Minimum=0,Maximum=10000,Value=s.DownloadBytesPerSecond/1_000_000m,Increment=1};
         var upload=new NumericUpDown{Minimum=0,Maximum=10000,Value=s.UploadBytesPerSecond/1_000_000m,Increment=1};
         var appearance=Stack(Field("Тема оформления",theme),Field("Акцентный цвет",accent),SliderField("Размер текста",textSize),SliderField("Размер значков",iconSize),SliderField("Высота строк",rowHeight),SliderField("Размер миниатюр",thumbnails));
-        var general=Stack(auto,notify,Text("Крестик сворачивает приложение в трей. Для выхода используйте меню значка в трее.",12,Muted),Text("Обычная и portable-версия используют общие данные:",12),Text(_store.DirectoryPath,11,Muted),Field("Лимит скачивания, МБ/с · 0 — без ограничений",download),Field("Лимит загрузки, МБ/с · 0 — без ограничений",upload),Text("В alpha ограничения скорости сохраняются, но регулятор передачи ещё не подключён.",11,Muted));
+        var general=Stack(auto,notify,Text("Крестик сворачивает приложение в трей. Для выхода используйте меню значка в трее.",12,Muted),Text("Обычная и portable-версия используют общие данные:",12),Text(_store.DirectoryPath,11,Muted),Field("Лимит на скачивание одного файла, МБ/с · 0 — без ограничений",download),Field("Лимит на загрузку одного файла, МБ/с · 0 — без ограничений",upload),Text("Лимиты применяются к новым передачам. Параллельные файлы имеют отдельные лимиты.",11,Muted));
+        var scans=new NumericUpDown{Minimum=1,Maximum=8,Value=s.ScanConcurrency};
+        var accounts=new NumericUpDown{Minimum=1,Maximum=4,Value=s.AccountConcurrency};
+        var transfers=new NumericUpDown{Minimum=1,Maximum=8,Value=s.TransferConcurrency};
+        var retries=new NumericUpDown{Minimum=0,Maximum=5,Value=s.RetryCount};
+        var conflict=new ComboBox{ItemsSource=new[]{"Заменять локальный файл","Сохранять предыдущий рядом","Сохранять предыдущий в папке версий"},SelectedIndex=(int)s.ConflictAction};
+        var sync=Stack(Field("Одновременно проверять папок",scans),Field("Одновременно обновлять дисков",accounts),Field("Одновременно скачивать файлов",transfers),Field("Повторных попыток чтения папки",retries),Field("Обновлённая локальная копия",conflict),Text("Автоматическое скачивание сохраняет предыдущую версию по выбранному правилу. Интервалы и исключения задаются отдельно в настройках диска.",12,Muted),Btn("Настройки текущего диска",()=>{CloseModal();if(_state.Accounts.Count>0)AccountSettings(CurrentAccount);}),Btn("Остановить все проверки",()=>{foreach(var token in _refreshing.Values)token.Cancel();}));
+        var thumbnailsEnabled=new CheckBox{Content="Миниатюры изображений в списке и сетке",IsChecked=s.ShowThumbnails};
+        var cacheLimit=new NumericUpDown{Minimum=10,Maximum=10000,Value=s.PreviewCacheBytes/1_000_000m};
+        var fileLimit=new NumericUpDown{Minimum=1,Maximum=200,Value=s.PreviewFileBytes/1_000_000m};
+        var previews=Stack(thumbnailsEnabled,Field("Кеш предпросмотра, МБ",cacheLimit),Field("Лимит одного файла предпросмотра, МБ",fileLimit),Text("Изображения, PDF и текст загружаются во временный кеш. Он отделён от ваших локальных копий.",12,Muted),AsyncBtn("Размер кеша",async()=>Notify("Кеш предпросмотра: "+Format.Bytes(await Task.Run(()=>StorageStatistics.DirectorySize(Cache.DirectoryPath))))),Btn("Очистить кеш предпросмотра",()=>{Cache.Clear();Notify("Кеш предпросмотра очищен");}),Btn("Значок текущего аккаунта",()=>{CloseModal();if(_state.Accounts.Count>0)AccountSettings(CurrentAccount);}));
+        var customIcons=new Dictionary<string,string>(s.CustomFileIcons,StringComparer.OrdinalIgnoreCase);
+        var extension=new TextBox{Watermark="Например .py или .blend"};
+        var assigned=Text(string.Join(", ",customIcons.Keys),11,Muted);
+        previews.Children.Add(Field("Значок для расширения файла",extension));
+        previews.Children.Add(Row(AsyncBtn("Выбрать иконку",async()=>{var ext=(extension.Text??"").Trim().ToLowerInvariant();if(ext.Length<2||ext.Length>32||ext[0]!='.'||ext[1..].Any(c=>!char.IsLetterOrDigit(c))){Notify("Укажите расширение, например .py");return;}if(await PickImage() is {} icon){customIcons[ext]=icon;assigned.Text=string.Join(", ",customIcons.Keys);}}),Btn("Сбросить для расширения",()=>{customIcons.Remove((extension.Text??"").Trim());assigned.Text=string.Join(", ",customIcons.Keys);})));previews.Children.Add(assigned);
         var configs=Stack(Btn("Журнал отладки",ShowDebug),AsyncBtn("Проверить обновления",()=>CheckUpdates(true)),Text("Конфигурация содержит только оформление, лимиты и настройки. Аккаунты и пароли в неё не входят.",12,Muted),AsyncBtn("Экспорт конфигурации",ExportConfig),AsyncBtn("Импорт конфигурации",ImportConfig),Btn("Предыдущие вкладки",()=>{CloseModal();_previous=_state.Tabs.ToList();Render();}),Btn("Статистика места на ПК",()=>_ = Run(StorageDialog)),Btn("Группы аккаунтов",Groups));
-        var tabs=new TabControl{ItemsSource=new[]{new TabItem{Header="Оформление",Content=appearance},new TabItem{Header="Приложение",Content=general},new TabItem{Header="Данные",Content=configs}}};
-        ShowModal("Настройки RCH",tabs,Btn("Сохранить",()=>{try{_ = Color.Parse(accent.Text??"");}catch{Notify("Неверный цвет. Пример: #3976E7");return;}s.Theme=theme.SelectedItem as string??"Light";s.Accent=accent.Text!;s.TextSize=textSize.Value;s.IconSize=iconSize.Value;s.RowHeight=rowHeight.Value;s.ThumbnailSize=thumbnails.Value;s.AutoStart=auto.IsChecked==true;s.Notifications=notify.IsChecked==true;s.DownloadBytesPerSecond=(long)((download.Value??0)*1_000_000);s.UploadBytesPerSecond=(long)((upload.Value??0)*1_000_000);Save();CloseModal();Render();},true));
+        var tabs=new TabControl{ItemsSource=new[]{new TabItem{Header="Оформление",Content=appearance},new TabItem{Header="Приложение",Content=general},new TabItem{Header="Синхронизация",Content=sync},new TabItem{Header="Предпросмотр",Content=previews},new TabItem{Header="Данные",Content=configs}}};
+        ShowModal("Настройки RCH",tabs,Btn("Сохранить",()=>{try{_ = Color.Parse(accent.Text??"");}catch{Notify("Неверный цвет. Пример: #3976E7");return;}if(fileLimit.Value>cacheLimit.Value){Notify("Лимит файла не должен превышать размер кеша");return;}
+            s.CustomFileIcons=customIcons;s.ScanConcurrency=(int)(scans.Value??4);s.AccountConcurrency=(int)(accounts.Value??2);s.TransferConcurrency=(int)(transfers.Value??2);s.RetryCount=(int)(retries.Value??2);s.ConflictAction=(ExistingFileAction)conflict.SelectedIndex;s.ShowThumbnails=thumbnailsEnabled.IsChecked==true;s.PreviewCacheBytes=(long)((cacheLimit.Value??256)*1_000_000);s.PreviewFileBytes=(long)((fileLimit.Value??25)*1_000_000);
+            s.Theme=theme.SelectedItem as string??"Light";s.Accent=accent.Text!;s.TextSize=textSize.Value;s.IconSize=iconSize.Value;s.RowHeight=rowHeight.Value;s.ThumbnailSize=thumbnails.Value;s.AutoStart=auto.IsChecked==true;s.Notifications=notify.IsChecked==true;s.DownloadBytesPerSecond=(long)((download.Value??0)*1_000_000);s.UploadBytesPerSecond=(long)((upload.Value??0)*1_000_000);WindowsOptions.ApplyAutoStart(s.AutoStart);Save();Cache.Trim(s.PreviewCacheBytes);CloseModal();Render();},true));
     }
     private Control SliderField(string label,Slider slider)
     {
@@ -658,12 +647,14 @@ public sealed partial class MainView : UserControl
     {
         var storage=TopLevel.GetTopLevel(this)?.StorageProvider;if(storage is null)return;
         var picked=await storage.OpenFilePickerAsync(new FilePickerOpenOptions{Title="Импорт настроек",AllowMultiple=false,FileTypeFilter=new[]{new FilePickerFileType("JSON"){Patterns=new[]{"*.json"}}}});if(picked.Count==0)return;
-        await using var stream=await picked[0].OpenReadAsync();using var reader=new StreamReader(stream);_state.Settings=_store.ImportSettings(await reader.ReadToEndAsync());Save();CloseModal();Render();Notify("Настройки импортированы");
+        await using var stream=await picked[0].OpenReadAsync();using var reader=new StreamReader(stream);_state.Settings=_store.ImportSettings(await reader.ReadToEndAsync());WindowsOptions.ApplyAutoStart(_state.Settings.AutoStart);Save();CloseModal();Render();Notify("Настройки импортированы");
     }
     private void AccountSettings(Account a)
     {
         var name=new TextBox{Text=a.Name};var groups=new ComboBox{ItemsSource=_state.Groups,SelectedItem=a.Group};
-        var adaptive=new CheckBox{Content="Проверять каталог при запуске с учётом активности",IsChecked=a.AdaptiveRefresh};
+        var adaptive=new CheckBox{Content="Обновлять каталог автоматически (при запуске и в фоне)",IsChecked=a.AdaptiveRefresh};
+        var refresh=new NumericUpDown{Minimum=1,Maximum=1440,Value=Math.Clamp(a.RefreshMinutes,1,1440)};
+        var exclusions=new TextBox{Text=a.ExcludedFolders,AcceptsReturn=true,MinHeight=70,Watermark="Путь папки от корня, каждый с новой строки"};
         var local=new CheckBox{Content="Сохранять файлы локально",IsChecked=a.SaveLocally};
         var path=new TextBox{Text=a.LocalFolder,Watermark="Папка на ПК обязательна для скачивания"};
         var maxFile=new NumericUpDown{Minimum=1,Maximum=10_000_000,Value=a.MaxFileBytes/1_000_000m};
@@ -699,21 +690,21 @@ public sealed partial class MainView : UserControl
         }
         layout.SelectionChanged+=(_,_)=>UpdatePreview();
         UpdatePreview();
-        var content=Stack(Text(a.Provider==ProviderKind.WebDav?a.Service+" · WebDAV":a.Service,12,Muted),Field("Название",name),Field("Группа",groups),adaptive,Text(a.CheckLabel,10,Muted),Text(a.QuotaDescription,11,Muted),Text(a.CatalogError,12,Muted),local,Field("Локальная папка",path),Field("Один файл, МБ",maxFile),Field("Общий объём, ГБ",maxTotal),keep,Field("Значок аккаунта",Row(preview,options)),Row(AsyncBtn("Загрузить свой значок",async()=>{if(await PickImage() is string f){selectedIcon=f;layout.SelectedIndex=(int)IconLayout.Custom;UpdatePreview();}}),AsyncBtn("Загрузить аватарку",async()=>{if(await PickImage() is string f){selectedAvatar=f;layout.SelectedIndex=(int)IconLayout.AvatarWithService;UpdatePreview();}})),Text(a.ProfileEmail,12,Muted));
+        var content=Stack(Text(a.Provider==ProviderKind.WebDav?a.Service+" · WebDAV":a.Service,12,Muted),Field("Название",name),Field("Группа",groups),adaptive,Field("Интервал проверки, мин",refresh),Text("Для редко используемых дисков интервал автоматически увеличивается.",11,Muted),Field("Исключённые папки",exclusions),Row(AsyncBtn("Обновить сейчас",()=>Refresh(a)),Btn("Отменить проверку",()=>{if(_refreshing.TryGetValue(a.Id,out var token))token.Cancel();})),Text(a.CheckLabel,10,Muted),Text(a.QuotaDescription,11,Muted),Text(a.CatalogError,12,Muted),local,Field("Локальная папка",path),Field("Один файл, МБ",maxFile),Field("Общий объём, ГБ",maxTotal),keep,Field("Значок аккаунта",Row(preview,options)),Row(AsyncBtn("Загрузить свой значок",async()=>{if(await PickImage() is string f){selectedIcon=f;layout.SelectedIndex=(int)IconLayout.Custom;UpdatePreview();}}),AsyncBtn("Загрузить аватарку",async()=>{if(await PickImage() is string f){selectedAvatar=f;layout.SelectedIndex=(int)IconLayout.AvatarWithService;UpdatePreview();}})),Text(a.ProfileEmail,12,Muted));
         if(a.Service=="Google Диск")content.Children.Add(AsyncBtn("Получить данные Google-профиля",async()=>{
             await GoogleProfile.LoadAsync(a,RcloneConfig,Path.Combine(_store.DirectoryPath,"icons"));Save();
             selectedAvatar=a.AvatarPath;UpdatePreview();Notify(a.ProfileEmail.Length>0?a.ProfileEmail:"Фото недоступно");
         }));
         if(a.Provider==ProviderKind.WebDav)content.Children.Add(Field("Пароль приложения (сохраняется защищённо в Windows)",password));
         content.Children.Add(Row(Btn("↑ Выше",()=>{var i=_state.Accounts.IndexOf(a);if(i>0){_state.Accounts.RemoveAt(i);_state.Accounts.Insert(i-1,a);Save();Notify("Порядок изменён");}}),Btn("↓ Ниже",()=>{var i=_state.Accounts.IndexOf(a);if(i<_state.Accounts.Count-1){_state.Accounts.RemoveAt(i);_state.Accounts.Insert(i+1,a);Save();Notify("Порядок изменён");}}),Btn("Отключить…",()=>Disconnect(a))));
-        ShowModal("Настройки аккаунта",content,AsyncBtn("Сохранить",async()=>{if(string.IsNullOrWhiteSpace(path.Text)){path.Text=AccountFolder(_state.LocalRoot,a);}a.Name=ValidName(name.Text);a.Group=groups.SelectedItem as string??"Без группы";a.AdaptiveRefresh=adaptive.IsChecked==true;a.SaveLocally=local.IsChecked==true;a.LocalFolder=path.Text?.Trim()??"";a.MaxFileBytes=(long)((maxFile.Value??50)*1_000_000);a.LocalLimitBytes=(long)((maxTotal.Value??30)*1_000_000_000);a.KeepDeletedCopies=keep.IsChecked==true;a.IconLayout=(IconLayout)layout.SelectedIndex;a.IconPath=selectedIcon;a.AvatarPath=selectedAvatar;
-            if(!string.IsNullOrEmpty(password.Text)){_sessionSecrets[a.Id]=password.Text;if(OperatingSystem.IsWindows())new WindowsSecretStore(_store.DirectoryPath).Save(a.Id,password.Text);}Save();CloseModal();Render();await SaveLocalCopies(a);},true));
+        ShowModal("Настройки аккаунта",content,AsyncBtn("Сохранить",async()=>{if(string.IsNullOrWhiteSpace(path.Text)){path.Text=AccountFolder(_state.LocalRoot,a);}a.Name=ValidName(name.Text);a.Group=groups.SelectedItem as string??"Без группы";a.AdaptiveRefresh=adaptive.IsChecked==true;a.RefreshMinutes=(int)(refresh.Value??15);a.ExcludedFolders=exclusions.Text??"";a.SaveLocally=local.IsChecked==true;a.LocalFolder=path.Text?.Trim()??"";a.MaxFileBytes=(long)((maxFile.Value??50)*1_000_000);a.LocalLimitBytes=(long)((maxTotal.Value??30)*1_000_000_000);a.KeepDeletedCopies=keep.IsChecked==true;a.IconLayout=(IconLayout)layout.SelectedIndex;a.IconPath=selectedIcon;a.AvatarPath=selectedAvatar;
+            if(!string.IsNullOrEmpty(password.Text)){_sessionSecrets[a.Id]=password.Text;if(OperatingSystem.IsWindows())new WindowsSecretStore(_store.DirectoryPath).Save(a.Id,password.Text);}Save();CloseModal();Render();_ = Run(()=>SaveLocalCopies(a));},true));
     }
     private async Task<string?> PickImage()
     {
         var storage=TopLevel.GetTopLevel(this)?.StorageProvider;if(storage is null)return null;
         var picked=await storage.OpenFilePickerAsync(new FilePickerOpenOptions{Title="Выберите изображение",AllowMultiple=false,FileTypeFilter=new[]{new FilePickerFileType("Изображения"){Patterns=new[]{"*.png","*.jpg","*.jpeg","*.webp"}}}});if(picked.Count==0)return null;
-        await using var input=await picked[0].OpenReadAsync();using var buffer=new MemoryStream();await input.CopyToAsync(buffer);if(buffer.Length>10_000_000)throw new IOException("Выберите изображение до 10 МБ");buffer.Position=0;using var bitmap=new Bitmap(buffer);var folder=Path.Combine(_store.DirectoryPath,"icons");Directory.CreateDirectory(folder);var path=Path.Combine(folder,Guid.NewGuid().ToString("N")+".png");bitmap.Save(path);Notify("Изображение выбрано. Нажмите «Сохранить».");return path;
+        await using var input=await picked[0].OpenReadAsync();using var buffer=new MemoryStream();using(var bounded=new LimitedWriteStream(buffer,10_000_000))await input.CopyToAsync(bounded);if(buffer.Length>10_000_000)throw new IOException("Выберите изображение до 10 МБ");buffer.Position=0;using var bitmap=Bitmap.DecodeToWidth(buffer,256);var folder=Path.Combine(_store.DirectoryPath,"icons");Directory.CreateDirectory(folder);var path=Path.Combine(folder,Guid.NewGuid().ToString("N")+".png");bitmap.Save(path);Notify("Изображение выбрано. Нажмите «Сохранить».");return path;
     }
     private void Groups()
     {
@@ -724,13 +715,13 @@ public sealed partial class MainView : UserControl
     private void Disconnect(Account a)
     {
         
-        var leave=new CheckBox{Content="Оставить локальные копии на ПК",IsChecked=true};ShowModal("Отключить «"+a.Name+"»?",Stack(Text("Файлы в облаке останутся. Доступ и индекс этого подключения будут удалены из RCH.",13),leave),Btn("Отключить",()=>{if(leave.IsChecked!=true){Notify("Безопасная очистка локальных копий ещё не подключена. Оставьте копии или удалите нужные вручную.");return;}_state.Accounts.Remove(a);_state.Entries.RemoveAll(f=>f.AccountId==a.Id);_tabs.RemoveAll(t=>t.AccountId==a.Id);if(_tabs.Count==0 && _state.Accounts.Count>0)_tabs.Add(new(){AccountId=_state.Accounts[0].Id});_active=0;_sessionSecrets.Remove(a.Id);if(OperatingSystem.IsWindows())new WindowsSecretStore(_store.DirectoryPath).Delete(a.Id);Save();CloseModal();Render();},true));
+        var leave=new CheckBox{Content="Оставить локальные копии на ПК",IsChecked=true};ShowModal("Отключить «"+a.Name+"»?",Stack(Text("Файлы в облаке останутся. Доступ и индекс этого подключения будут удалены из RCH.",13),leave),Btn("Отключить",()=>{if(leave.IsChecked!=true){Notify("Безопасная очистка локальных копий ещё не подключена. Оставьте копии или удалите нужные вручную.");return;}if(_refreshing.TryGetValue(a.Id,out var refreshToken))refreshToken.Cancel();_state.Accounts.Remove(a);_state.Entries.RemoveAll(f=>f.AccountId==a.Id);_tabs.RemoveAll(t=>t.AccountId==a.Id);if(_tabs.Count==0 && _state.Accounts.Count>0)_tabs.Add(new(){AccountId=_state.Accounts[0].Id});_active=0;_sessionSecrets.Remove(a.Id);if(OperatingSystem.IsWindows())new WindowsSecretStore(_store.DirectoryPath).Delete(a.Id);Save();CloseModal();Render();},true));
     }
     private void Connect()
     {
         var service=new ComboBox{ItemsSource=new[]{"Свой сервер · WebDAV","Google Диск","Яндекс Диск","OneDrive","Dropbox","Облако Mail.ru","iCloud Drive","MEGA","Свой сервер · SFTP","Свой сервер · S3","Свой сервер · SMB"},SelectedIndex=0};
         var name=new TextBox{Watermark="Например, Nextcloud дома"};var endpoint=new TextBox{Watermark="https://server/remote.php/dav/files/user/"};var user=new TextBox{Watermark="Имя пользователя"};var password=new TextBox{PasswordChar='●',Watermark="Пароль приложения"};var path=new TextBox{Watermark="По умолчанию — подпапка выбранного хранилища"};
-        var adaptive=new CheckBox{Content="Проверять каталог при запуске с учётом активности",IsChecked=true};var local=new CheckBox{Content="Сохранять файлы локально",IsChecked=false};
+        var adaptive=new CheckBox{Content="Обновлять каталог автоматически (при запуске и в фоне)",IsChecked=true};var local=new CheckBox{Content="Сохранять файлы локально",IsChecked=false};
         var remoteId = "rc_" + Guid.NewGuid().ToString("N");
         string[] backends = ["webdav","drive","yandex","onedrive","dropbox","mailru","iclouddrive","mega","sftp","s3","smb"];
         var loginLifetime = new CancellationTokenSource();
@@ -824,11 +815,10 @@ public sealed partial class MainView : UserControl
             using IAccountProvider provider = a.Provider == ProviderKind.Rclone
                 ? new RcloneProvider(a, RcloneExe, RcloneConfig,LogEvent) : new WebDavProvider(a,password.Text??"");
             LogEvent($"Подключение · account={a.Id} · проверка корневого каталога");
-            await provider.ListAsync("",CancellationToken.None);
-            await RefreshQuota(a,provider);
+            var initial=await provider.ListAsync("",CancellationToken.None);
             if(string.IsNullOrWhiteSpace(a.LocalFolder))a.LocalFolder=AccountFolder(_state.LocalRoot,a);
             if(a.Service=="Google Диск")a.IconLayout=IconLayout.ServiceWithAvatar;
-            _state.Accounts.Add(a);if(_tabs.Count==0)_tabs.Add(new(){AccountId=a.Id});_sessionSecrets[a.Id]=password.Text??"";if(a.Provider==ProviderKind.WebDav && OperatingSystem.IsWindows())new WindowsSecretStore(_store.DirectoryPath).Save(a.Id,password.Text??"");Save();CloseModal();Navigate(a.Id,"");await Refresh(a);
+            _state.Accounts.Add(a);_state.Entries.AddRange(initial);if(_tabs.Count==0)_tabs.Add(new(){AccountId=a.Id});_sessionSecrets[a.Id]=password.Text??"";if(a.Provider==ProviderKind.WebDav && OperatingSystem.IsWindows())new WindowsSecretStore(_store.DirectoryPath).Save(a.Id,password.Text??"");Save();CloseModal();Navigate(a.Id,"");_ = Run(()=>Refresh(a));
             }
             catch(Exception e) {LogEvent("Подключение · "+backends[index]+" · "+(index==6 && e.Message.StartsWith("iCloud ·",StringComparison.Ordinal)?e.Message:ProviderError.Describe(backends[index],"Ошибка",e.Message,1)));status.Text="Подключение не завершено";failure.Text=e.Message;failure.IsVisible=copy.IsVisible=true;}
             finally {signingIn=false;back.IsEnabled=true;alternative.IsEnabled=true;ownClient.IsEnabled=true;davHelp.IsEnabled=true;questions.Children.Clear();}

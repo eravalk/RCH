@@ -107,30 +107,57 @@ public sealed class CatalogService
         }
         return result;
     }
-    public async Task<CatalogScan> ScanAsync(ICloudProvider provider,IProgress<int>? progress,CancellationToken ct)
+    public async Task<CatalogScan> ScanAsync(ICloudProvider provider,IProgress<int>? progress,CancellationToken ct,
+        int concurrency=4,int retries=2,Action<IReadOnlyList<CloudEntry>>? discovered=null,string exclusions="")
     {
+        if(provider is IRecursiveCatalogProvider recursive && string.IsNullOrWhiteSpace(exclusions))
+        {
+            // Show the root immediately; one streaming process handles the full tree afterwards.
+            var root=await provider.ListAsync("",ct);discovered?.Invoke(root);
+            for(int attempt=0;;attempt++)try{return await recursive.ScanCatalogAsync(discovered,progress,concurrency,ct);}
+            catch(IOException) when(attempt<Math.Clamp(retries,0,5)){await Task.Delay(TimeSpan.FromMilliseconds(250*Math.Pow(2,attempt)),ct);}
+        }
         var result=new List<CloudEntry>();var failed=new List<string>();
         var folders=new Queue<string>();var visited=new HashSet<string>(StringComparer.Ordinal);folders.Enqueue("");
-        while(folders.TryDequeue(out var path))
+        var excluded=exclusions.Split('\n',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries).Select(Paths.Normalize).Where(p=>p.Length>0).ToArray();
+        bool Skip(string path)=>excluded.Any(e=>path==e||path.StartsWith(e+"/",StringComparison.Ordinal));
+        async Task<(string Path,IReadOnlyList<CloudEntry>? Entries)> Read(string path)
         {
-            ct.ThrowIfCancellationRequested();if(!visited.Add(path))continue;
-            try {
-                var children=await provider.ListAsync(path,ct);result.AddRange(children);progress?.Report(result.Count);
-                foreach(var child in children.Where(f=>f.IsFolder))folders.Enqueue(child.Path);
-            }catch(Exception e) when(path.Length>0 && e is IOException or UnauthorizedAccessException or HttpRequestException or System.Text.Json.JsonException) {
-                failed.Add(path);
+            for(int attempt=0;;attempt++)
+            {
+                try{return(path,await provider.ListAsync(path,ct));}
+                catch(Exception error) when(error is IOException or HttpRequestException or UnauthorizedAccessException or System.Text.Json.JsonException)
+                {
+                    if(attempt<Math.Clamp(retries,0,5) && error is not UnauthorizedAccessException)
+                    {await Task.Delay(TimeSpan.FromMilliseconds(250*Math.Pow(2,attempt)),ct);continue;}
+                    if(path.Length==0)throw;
+                    return(path,null);
+                }
             }
-            await Task.Delay(125,ct);
+        }
+        while(folders.Count>0)
+        {
+            ct.ThrowIfCancellationRequested();var wave=new List<Task<(string Path,IReadOnlyList<CloudEntry>? Entries)>>();
+            while(wave.Count<Math.Clamp(concurrency,1,8)&&folders.TryDequeue(out var path))
+                if(!Skip(path)&&visited.Add(path))wave.Add(Read(path));
+            var batch=new List<CloudEntry>();
+            foreach(var item in await Task.WhenAll(wave))
+            {
+                if(item.Entries==null){failed.Add(item.Path);continue;}
+                foreach(var child in item.Entries.Where(f=>!Skip(f.Path)))
+                {result.Add(child);batch.Add(child);if(child.IsFolder)folders.Enqueue(child.Path);}
+            }
+            discovered?.Invoke(batch);progress?.Report(result.Count);
         }
         return new(result,failed);
     }
     public static void Merge(AppState state,Account account,CatalogScan scan)
     {
         var previousCheck=account.LastCheck;
-        var preserved=state.Entries.Where(f=>f.AccountId==account.Id && scan.FailedFolders.Any(folder=>f.Path.StartsWith(folder+"/",StringComparison.Ordinal)));
+        var preserved=state.Entries.Where(f=>f.AccountId==account.Id && scan.FailedFolders.Any(folder=>folder.Length==0||f.Path.StartsWith(folder+"/",StringComparison.Ordinal)));
         var incoming=scan.Entries.Concat(preserved).DistinctBy(f=>f.Path,StringComparer.Ordinal).ToList();
         Merge(state,account,incoming);
-        account.CatalogError=scan.FailedFolders.Count==0?"":$"Не прочитано папок: {scan.FailedFolders.Count}. Доступные файлы показаны, прежние записи недоступных папок сохранены.";
+        account.CatalogError=scan.FailedFolders.Contains("")?"Каталог прочитан частично. Доступные файлы показаны; прежние записи остальных файлов сохранены.":scan.FailedFolders.Count==0?"":$"Не прочитано папок: {scan.FailedFolders.Count}. Доступные файлы показаны, прежние записи недоступных папок сохранены.";
         if(scan.FailedFolders.Count>0)account.LastCheck=previousCheck;
     }
     public static void Merge(AppState state, Account account, IReadOnlyList<CloudEntry> incoming)

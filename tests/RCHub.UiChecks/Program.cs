@@ -47,6 +47,7 @@ foreach(var id in new[]{"home","work"})
 }
 ContextMenuChecks.Run(root);
 SelectionChecks.Run(root);
+CloudPreviewChecks.Run(root);
 var main=(MainView)secondWindow.Content!;
 main.ShowDebug();
 Dispatcher.UIThread.RunJobs();

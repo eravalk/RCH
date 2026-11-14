@@ -28,6 +28,9 @@ public sealed class Account
     public string UserName { get; set; } = "";
     public string LocalFolder { get; set; } = "";
     public bool AdaptiveRefresh { get; set; } = true;
+    public int RefreshMinutes { get; set; } = 15;
+    public string ExcludedFolders { get; set; } = "";
+    [JsonIgnore] public string Activity { get; set; } = "";
     public bool SaveLocally { get; set; }
     public long MaxFileBytes { get; set; } = 50_000_000;
     public long LocalLimitBytes { get; set; } = 30_000_000_000;
@@ -66,7 +69,7 @@ public sealed class Account
         (QuotaError.Length>0?QuotaChecked!=null?" · устарело":" · нет данных":"");
     public double UsedPercent => QuotaKnown?Math.Clamp(UsedBytes!.Value*100d/TotalBytes!.Value,0,100):0;
     public string CatalogError {get;set;}="";
-    public string CheckLabel => (LastCheck is null ? "Ещё не проверено" : "Проверено: " + LastCheck.Value.ToLocalTime().ToString("dd.MM, HH:mm")) + (CatalogError.Length>0?" · каталог прочитан не полностью":"");
+    public string CheckLabel => (Activity.Length>0?Activity+" · ":"") + (LastCheck is null ? "Ещё не проверено" : "Проверено: " + LastCheck.Value.ToLocalTime().ToString("dd.MM, HH:mm")) + (CatalogError.Length>0?" · каталог прочитан не полностью":"");
 }
 public sealed class CloudEntry : Observable
 {
@@ -104,6 +107,15 @@ public sealed class Settings
     public string Theme { get; set; } = "Light";
     public string Accent { get; set; } = "#3976E7";
     public string View { get; set; } = "List";
+    public Dictionary<string,string> CustomFileIcons {get;set;} = new(StringComparer.OrdinalIgnoreCase);
+    public int ScanConcurrency { get; set; } = 4;
+    public int AccountConcurrency { get; set; } = 2;
+    public int TransferConcurrency { get; set; } = 2;
+    public int RetryCount { get; set; } = 2;
+    public bool ShowThumbnails { get; set; } = true;
+    public long PreviewCacheBytes { get; set; } = 256_000_000;
+    public long PreviewFileBytes { get; set; } = 25_000_000;
+    public ExistingFileAction ConflictAction { get; set; } = ExistingFileAction.RenameOld;
     public bool AutoStart { get; set; }
     public bool Notifications { get; set; } = true;
     public bool FirstRunComplete { get; set; }

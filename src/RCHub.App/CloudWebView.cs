@@ -6,7 +6,7 @@ using System.Drawing;
 using System.Runtime.InteropServices;
 
 namespace RCHub.App;
-internal sealed class CloudWebView(Uri location,string profile,Action<string> showError):NativeControlHost
+internal sealed class CloudWebView(Uri location,string profile,Action<string> showError,string? localFolder=null):NativeControlHost
 {
     private CoreWebView2Controller? controller;
     private int generation;
@@ -31,9 +31,16 @@ internal sealed class CloudWebView(Uri location,string profile,Action<string> sh
             if(ticket!=generation){created.Close();return;}
             controller=created;
             var web=created.CoreWebView2;
+            if(localFolder!=null){web.SetVirtualHostNameToFolderMapping("rch-preview.local",localFolder,CoreWebView2HostResourceAccessKind.DenyCors);web.Settings.IsScriptEnabled=false;web.Settings.AreDefaultContextMenusEnabled=false;}
+            if(localFolder!=null)web.AddWebResourceRequestedFilter("https://rch-preview.local/*",CoreWebView2WebResourceContext.All);
+            web.WebResourceRequested+=(_,e)=>{if(localFolder!=null&&Uri.TryCreate(e.Request.Uri,UriKind.Absolute,out var pdf)&&pdf.Host=="rch-preview.local"){
+                var file=Path.Combine(localFolder,Uri.UnescapeDataString(pdf.AbsolutePath.TrimStart('/')));
+                if(pdf.AbsolutePath==location.AbsolutePath&&File.Exists(file))e.Response=environment.CreateWebResourceResponse(File.OpenRead(file),200,"OK","Content-Type: application/pdf");
+                else e.Response=environment.CreateWebResourceResponse(null,404,"Not Found","");
+            }};
             web.Settings.IsWebMessageEnabled=false;
             web.Settings.AreHostObjectsAllowed=false;
-            web.NavigationStarting+=(_,e)=>{if(!Uri.TryCreate(e.Uri,UriKind.Absolute,out var uri)||uri.Scheme!="https")e.Cancel=true;};
+            web.NavigationStarting+=(_,e)=>{if(!Uri.TryCreate(e.Uri,UriKind.Absolute,out var uri)||uri.Scheme!="https"||(localFolder!=null&&(uri.Host!="rch-preview.local"||uri.AbsolutePath!=location.AbsolutePath)))e.Cancel=true;};
             web.NewWindowRequested+=(_,e)=>{e.Handled=true;if(Uri.TryCreate(e.Uri,UriKind.Absolute,out var uri)&&uri.Scheme=="https")web.Navigate(uri.AbsoluteUri);};
             created.IsVisible=true;
             UpdateSize();web.Navigate(location.AbsoluteUri);

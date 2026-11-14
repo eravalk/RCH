@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media;
+using Avalonia.Platform;
 using RCHub.App;
 
 namespace RCHub.Desktop;
@@ -39,6 +40,8 @@ public sealed class DesktopApp : RCHub.App.AppBase
             var view=new MainView();
             var window=new Window { Title="RCH",Icon=LogoRaster.WindowMark(), Width=1360,Height=860,MinWidth=960,MinHeight=640,Content=view,Background=Brushes.White };
             desktop.MainWindow=window;
+            WindowsNotifications? notifications=null;
+            window.Opened+=(_,_)=>{if(OperatingSystem.IsWindows()&&window.TryGetPlatformHandle() is {} handle){notifications=new WindowsNotifications(handle.Handle);view.DesktopNotification=notifications.Show;}};
             var menu=new NativeMenu();
             var open=new NativeMenuItem("Открыть RCH");open.Click+=(_,_)=>{window.Show();window.Activate();};menu.Items.Add(open);
             var journal=new NativeMenuItem("Журнал отладки");journal.Click+=(_,_)=>view.ShowDebug();menu.Items.Add(journal);
@@ -48,7 +51,7 @@ public sealed class DesktopApp : RCHub.App.AppBase
             tray.Clicked+=(_,_)=>{window.Show();window.Activate();};
             TrayIcon.SetIcons(this,new TrayIcons {tray});
             window.Closing+=(_,e)=>{view.Save();if(!_exiting){e.Cancel=true;window.Hide();}};
-            desktop.Exit+=(_,_)=>{view.Save();tray.Dispose();};
+            desktop.Exit+=(_,_)=>{view.Save();notifications?.Dispose();tray.Dispose();};
         }
         base.OnFrameworkInitializationCompleted();
     }

@@ -15,7 +15,7 @@ if (!(Test-Path $backend)) {
 }
 dotnet build src/RCHub.Desktop/RCHub.Desktop.csproj -m:1
 if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
-dotnet run --project tests/RCHub.Checks
+dotnet run --project tests/RCHub.Checks -- $backend
 if ($LASTEXITCODE -ne 0) { throw 'Checks failed' }
 dotnet build tests/RCHub.UiChecks -m:1
 if ($LASTEXITCODE -ne 0) { throw 'UI build failed' }
