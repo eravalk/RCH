@@ -17,5 +17,14 @@ dotnet build src/RCHub.Desktop/RCHub.Desktop.csproj -m:1
 if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
 dotnet run --project tests/RCHub.Checks
 if ($LASTEXITCODE -ne 0) { throw 'Checks failed' }
+dotnet build tests/RCHub.UiChecks -m:1
+if ($LASTEXITCODE -ne 0) { throw 'UI build failed' }
+$uiPreview = Join-Path ([IO.Path]::GetTempPath()) ("RCH-ui-" + [guid]::NewGuid().ToString() + ".png")
+try {
+    dotnet run --no-build --project tests/RCHub.UiChecks -- $uiPreview
+    if ($LASTEXITCODE -ne 0) { throw 'UI interaction checks failed' }
+} finally {
+    if (Test-Path $uiPreview) { Remove-Item $uiPreview }
+}
 dotnet publish src/RCHub.Desktop/RCHub.Desktop.csproj -c Release -r win-x64 --self-contained true -m:1 -o release/RCH-win-x64
 if ($LASTEXITCODE -ne 0) { throw 'Publish failed' }

@@ -45,6 +45,7 @@ foreach(var id in new[]{"home","work"})
     var rows=secondWindow.GetVisualDescendants().OfType<DataGrid>().Single().ItemsSource.Cast<CloudEntry>().ToList();
     if(rows.Count!=1 || rows[0].AccountId!=id)throw new Exception("Incorrect files after account switch");
 }
+ContextMenuChecks.Run(root);
 var main=(MainView)secondWindow.Content!;
 main.ShowDebug();
 Dispatcher.UIThread.RunJobs();

@@ -64,6 +64,9 @@ public sealed partial class MainView : UserControl
         _previous=_state.Tabs.Where(t=>_state.Accounts.Any(a=>a.Id==t.AccountId)).ToList();
         if (_state.Accounts.Count > 0) _tabs.Add(new(){AccountId=_state.Accounts[0].Id});
         Render();
+        AddHandler(PointerReleasedEvent,ContextPointerReleased,RoutingStrategies.Tunnel,handledEventsToo:true);
+        AddHandler(ContextRequestedEvent,ContextRequestedFallback,RoutingStrategies.Tunnel);
+        AddHandler(KeyUpEvent,ContextKeyReleased,RoutingStrategies.Tunnel,handledEventsToo:true);
         AddHandler(PointerMovedEvent,DragMoved,RoutingStrategies.Tunnel);
         AddHandler(PointerReleasedEvent,DragReleased,RoutingStrategies.Tunnel);
         Loaded += OnFirstLoad;
@@ -167,7 +170,7 @@ public sealed partial class MainView : UserControl
                 var check=Text(a.AdaptiveRefresh?a.CheckLabel:"Вручную · "+a.CheckLabel,9,B("#8FA3BF"));check.Margin=new Thickness(32,0,0,0);p.Children.Add(check);
                 var button=Btn("",()=>Navigate(a.Id,""));button.Content=p;button.Classes.Add("nav");button.HorizontalAlignment=HorizontalAlignment.Stretch;button.Tag=a;
                 if(Current.AccountId==a.Id&&Current.Page=="files")button.Background=B("#204A92");
-                button.PointerPressed+=(_,e)=>StartDrag(a,e);button.ContextMenu=new ContextMenu{ItemsSource=new[]{Menu("Настройки аккаунта",()=>AccountSettings(a)),Menu("Отключить…",()=>Disconnect(a))}};
+                button.PointerPressed+=(_,e)=>StartDrag(a,e);
                 links.Children.Add(button);
             }
         }
@@ -244,7 +247,7 @@ public sealed partial class MainView : UserControl
             {
                 var content=Stack(FileSymbol.Create(f,54),Text(f.Name,12),StatusButton(f));
                 var tile=new Border{Child=content,Padding=new Thickness(12),Margin=new Thickness(5),Background=Surface,CornerRadius=new CornerRadius(6),MinHeight=_state.Settings.ThumbnailSize,Tag=f};
-                tile.Tapped+=(_,_)=>Open(f);tile.PointerPressed+=(_,e)=>StartDrag(f,e);tile.ContextMenu=FileMenu(f);wrap.Children.Add(tile);
+                tile.Tapped+=(_,_)=>Open(f);tile.PointerPressed+=(_,e)=>StartDrag(f,e);wrap.Children.Add(tile);
             }
             _fileArea.Children.Add(new ScrollViewer{Content=wrap});
         }
@@ -255,7 +258,7 @@ public sealed partial class MainView : UserControl
             table.Columns.Add(new DataGridTextColumn{Header="Тип",Binding=new Avalonia.Data.Binding("Kind"),Width=new DataGridLength(125)});
             table.Columns.Add(new DataGridTextColumn{Header="Изменён",Binding=new Avalonia.Data.Binding("ModifiedLabel"),Width=new DataGridLength(180)});
             table.Columns.Add(new DataGridTextColumn{Header="Размер",Binding=new Avalonia.Data.Binding("SizeLabel"),Width=new DataGridLength(110)});
-            table.Columns.Add(new DataGridTemplateColumn{Header="",Width=new DataGridLength(40),CellTemplate=new FuncDataTemplate<CloudEntry>((f,_)=>{var b=Btn("⋯",()=>{});b.Classes.Add("quiet");b.Padding=new Thickness(5);if(f is not null){b.Click+=(_,_)=>{b.ContextMenu=FileMenu(f);b.ContextMenu.Open(b);};}return b;})});
+            table.Columns.Add(new DataGridTemplateColumn{Header="",Width=new DataGridLength(40),CellTemplate=new FuncDataTemplate<CloudEntry>((f,_)=>{var b=Btn("⋯",()=>{});b.Classes.Add("quiet");b.Padding=new Thickness(5);if(f is not null){b.Click+=(_,_)=>{_selected=f;OpenContextMenu(b,FileMenu(f));};}return b;})});
             table.SelectionChanged+=(_,_)=>{_selected=table.SelectedItem as CloudEntry;if(_preview)RenderDetail();};
             if(_selected is not null)table.SelectedItem=entries.FirstOrDefault(f=>f.Id==_selected.Id);
             _fileArea.Children.Add(table);
@@ -291,7 +294,7 @@ public sealed partial class MainView : UserControl
             p.Children.Add(Text("Скачан: "+(f.Downloaded?.ToLocalTime().ToString("dd.MM.yyyy, HH:mm")??"не скачан"),10,Muted));
             p.Children.Add(Row(AsyncBtn("Заменить",()=>Download(f,ExistingFileAction.Replace)),AsyncBtn("Сохранить обе",()=>Download(f,ExistingFileAction.RenameOld)),AsyncBtn("В папку версий",()=>Download(f,ExistingFileAction.ArchiveOld))));
         }
-        var b=new Border{Child=p,Padding=new Thickness(8,4),Tag=f,ContextMenu=FileMenu(f)};b.Tapped+=(_,_)=>{if(!_dragging)Open(f);};b.PointerPressed+=(_,e)=>StartDrag(f,e);return b;
+        var b=new Border{Child=p,Padding=new Thickness(8,4),Tag=f,Background=Brushes.Transparent};b.Tapped+=(_,_)=>{if(!_dragging)Open(f);};b.PointerPressed+=(_,e)=>StartDrag(f,e);return b;
     }
     private Control StatusButton(CloudEntry f)
     {
@@ -550,6 +553,7 @@ public sealed partial class MainView : UserControl
     }
     private void DragReleased(object? sender,PointerReleasedEventArgs e)
     {
+        if(e.InitialPressMouseButton!=MouseButton.Left)return;
         var source=_dragObject;_dragObject=null;if(_dragGhost is not null){_root.Children.Remove(_dragGhost);_dragGhost=null;}if(!_dragging)return;e.Handled=true;
         var p=e.GetPosition(_root);var tags=_root.GetVisualsAt(p).OfType<Control>().Select(c=>c.Tag).Where(t=>t is Account or TabState).ToList();var target=tags.FirstOrDefault();
         if(source is CloudEntry f){if(target is Account a)_ = Run(()=>Transfer(f,a,"",false));else if(target is TabState t)_ = Run(()=>Transfer(f,_state.Accounts.First(a=>a.Id==t.AccountId),t.Path,false));}
