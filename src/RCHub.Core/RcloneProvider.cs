@@ -5,7 +5,7 @@ namespace RCHub.Core;
 
 public interface IAccountProvider : ICloudProvider, IDisposable { }
 
-public sealed class RcloneProvider(Account account, string executable, string config) : IAccountProvider
+public sealed class RcloneProvider(Account account, string executable, string config, Action<string>? trace=null) : IAccountProvider, IQuotaProvider
 {
     private string Target(string path)
     {
@@ -31,6 +31,9 @@ public sealed class RcloneProvider(Account account, string executable, string co
         start.RedirectStandardError = start.RedirectStandardOutput = true;
         start.CreateNoWindow = true;
         start.StandardErrorEncoding = System.Text.Encoding.UTF8;
+        var op=Guid.NewGuid().ToString("N");
+        var context=$"account={account.Id} service={account.Service} op={op} command={args[0]}";
+        trace?.Invoke(context+" started");
         using var process = Process.Start(start) ?? throw new IOException("Не удалось запустить rclone");
         try
         {
@@ -38,8 +41,19 @@ public sealed class RcloneProvider(Account account, string executable, string co
             await process.StandardOutput.BaseStream.CopyToAsync(output ?? Stream.Null, ct);
             await process.WaitForExitAsync(ct);
             var error = await diagnostic;
+            trace?.Invoke(context+" exit="+process.ExitCode);
             if (process.ExitCode != 0)
-                throw new IOException(ProviderError.Describe(account.Service,args[0]=="lsjson"?"Чтение каталога":"Операция с файлами",error,process.ExitCode));
+            {
+                var report=SafeDiagnostic.Report(error,context,process.ExitCode);
+                trace?.Invoke(report);
+                if(account.Service=="iCloud Drive")
+                {
+                    var dir=Path.Combine(Path.GetDirectoryName(config)!,"diagnostics");
+                    Directory.CreateDirectory(dir);
+                    File.WriteAllText(Path.Combine(dir,"icloud-last.txt"),report);
+                }
+                throw new IOException(ProviderError.Describe(account.Service,args[0]=="lsjson"?"Чтение каталога":"Операция с файлами",error,process.ExitCode)+"\n"+report);
+            }
         }
         finally
         {
@@ -66,6 +80,12 @@ public sealed class RcloneProvider(Account account, string executable, string co
         return entries;
     }
 
+    public async Task<CloudQuota> GetQuotaAsync(CancellationToken ct)
+    {
+        using var output=new MemoryStream();
+        await RunAsync(["about",Target(""),"--json"],output,ct);
+        return CloudQuota.Parse(output.ToArray());
+    }
     public Task DownloadAsync(string path, Stream destination, IProgress<long>? progress, CancellationToken ct) =>
         RunAsync(["cat", Target(path)], destination, ct);
 

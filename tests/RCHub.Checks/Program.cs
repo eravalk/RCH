@@ -82,6 +82,17 @@ using(var client=new HttpClient(new ReleaseReply(404,"{}"))){
     var missing=await ReleaseCheck.CheckAsync(client,new Version(0,1,9));
     Check(!missing.Newer && missing.Message.Contains("не предоставил"),"Missing or private release is reported distinctly");
 }
+var quotaAccount=new Account{UsedBytes=7,TotalBytes=10};
+CloudQuota.Parse(System.Text.Encoding.UTF8.GetBytes("""{"total":1000,"used":100,"free":600,"other":300}""")).Apply(quotaAccount);
+Check(quotaAccount.UsedBytes==400 && quotaAccount.DriveUsedBytes==100 && quotaAccount.FreeBytes==600,"Quota occupancy uses total minus free including other services");
+CloudQuota.Parse(System.Text.Encoding.UTF8.GetBytes("""{"used":101}""")).Apply(quotaAccount);
+Check(quotaAccount.TotalBytes==null && !quotaAccount.QuotaKnown && quotaAccount.CapacityLabel.Contains("лимит неизвестен"),"Partial quota never leaves a previous total or zero bar");
+quotaAccount.QuotaError="Ошибка запроса";
+Check(quotaAccount.CapacityLabel.Contains("устарело"),"Failed quota refresh is marked stale");
+var legacy=new Account{UsedBytes=100,TotalBytes=1000};
+Check(!legacy.QuotaKnown && legacy.CapacityLabel=="Объём ещё не получен","Legacy quota without timestamp is not presented as fresh");
+var safe=SafeDiagnostic.Report("failed to create file system for private/file: missing icloud trust token; cookie=SECRET; password=123456; https://x.test/?code=123456","account=synthetic command=lsjson",1);
+Check(safe.Contains("missing icloud trust token") && !safe.Contains("SECRET") && !safe.Contains("123456") && !safe.Contains("private/file"),"Post-login stderr retains known error phrase and strips private values");
 Console.WriteLine($"{count} checks passed");
 }finally{Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();Directory.Delete(root,true);}
 static string Resource(string href)=>$"<d:response><d:href>{href}</d:href><d:propstat><d:prop><d:getcontentlength>3</d:getcontentlength></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>";

@@ -34,6 +34,20 @@ public sealed class Account
     public bool KeepDeletedCopies { get; set; }
     public DateTimeOffset? LastCheck { get; set; }
     public DateTimeOffset? LastUsed { get; set; }
+    public long? FreeBytes {get;set;}
+    public long? DriveUsedBytes {get;set;}
+    public long? OtherBytes {get;set;}
+    public long? TrashBytes {get;set;}
+    public DateTimeOffset? QuotaChecked {get;set;}
+    public string QuotaError {get;set;}="";
+    [JsonIgnore] public bool QuotaKnown=>QuotaChecked!=null && UsedBytes.HasValue && TotalBytes is >0;
+    [JsonIgnore] public string QuotaDescription => "Квота аккаунта, данные сервиса. Единицы: ГБ = 1 000 000 000 байт." +
+        (QuotaChecked is {} time?" Проверено: "+time.ToLocalTime().ToString("dd.MM HH:mm:ss"):" Ещё не проверено.") +
+        (DriveUsedBytes is {} used?" Файлы: "+Format.Bytes(used)+".":"") +
+        (FreeBytes is {} free?" Свободно: "+Format.Bytes(free)+".":"") +
+        (OtherBytes is >0?" Другие сервисы: "+Format.Bytes(OtherBytes.Value)+".":"") +
+        (TrashBytes is >0?" Корзина: "+Format.Bytes(TrashBytes.Value)+".":"") +
+        (QuotaError.Length>0?" Последняя проверка: "+QuotaError:"");
     public long? UsedBytes { get; set; }
     public long? TotalBytes { get; set; }
     public IconLayout IconLayout { get; set; }
@@ -43,8 +57,13 @@ public sealed class Account
     public string Accent { get; set; } = "#71A9F3";
     public bool IsDemo => Provider == ProviderKind.Demo;
     public string Title => Service + " · " + Name;
-    public string CapacityLabel => UsedBytes is long used && TotalBytes is long total ? $"{Format.Bytes(used)} из {Format.Bytes(total)}" : "Объём не предоставлен";
-    public double UsedPercent => TotalBytes is > 0 ? Math.Clamp((UsedBytes ?? 0) * 100d / TotalBytes.Value, 0, 100) : 0;
+    public string CapacityLabel => (QuotaChecked==null?"Объём ещё не получен":
+        UsedBytes is long used && TotalBytes is long total?$"{Format.Bytes(used)} из {Format.Bytes(total)}":
+        UsedBytes is long partial?$"Занято: {Format.Bytes(partial)} · лимит неизвестен":
+        FreeBytes is long free?$"Свободно: {Format.Bytes(free)} · лимит неизвестен":
+        TotalBytes is long limit?$"Всего: {Format.Bytes(limit)} · занято неизвестно":"Квота недоступна") +
+        (QuotaError.Length>0?QuotaChecked!=null?" · устарело":" · нет данных":"");
+    public double UsedPercent => QuotaKnown?Math.Clamp(UsedBytes!.Value*100d/TotalBytes!.Value,0,100):0;
     public string CheckLabel => LastCheck is null ? "Ещё не проверено" : "Проверено: " + LastCheck.Value.ToLocalTime().ToString("dd.MM, HH:mm");
 }
 public sealed class CloudEntry : Observable

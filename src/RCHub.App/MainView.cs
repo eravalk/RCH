@@ -108,12 +108,12 @@ public sealed partial class MainView : UserControl
     private static StackPanel Row(params Control[] controls){var p=new StackPanel{Orientation=Orientation.Horizontal,Spacing=7,VerticalAlignment=VerticalAlignment.Center};foreach(var c in controls)p.Children.Add(c);return p;}
     private Button Btn(string title,Action action,bool primary=false,string? tip=null)
     {
-        var b=new Button{Content=title,VerticalAlignment=VerticalAlignment.Center};if(primary)b.Classes.Add("primary");b.Click+=(_,_)=>{try{action();}catch(Exception e){LogEvent("Ошибка действия · "+e.GetType().Name);Notify(e.Message);}};if(tip is not null)ToolTip.SetTip(b,tip);return b;
+        var b=new Button{Content=title,VerticalAlignment=VerticalAlignment.Center};if(primary)b.Classes.Add("primary");b.Click+=(_,_)=>{try{action();}catch(Exception e){LogEvent(SafeDiagnostic.Exception(e));Notify(e.Message);}};if(tip is not null)ToolTip.SetTip(b,tip);return b;
     }
     private Button AsyncBtn(string title,Func<Task> action,bool primary=false)=>Btn(title,()=>_ = Run(action),primary);
     private async Task Run(Func<Task> action)
     {
-        try{await action();}catch(OperationCanceledException){Notify("Операция приостановлена");}catch(Exception e){LogEvent("Ошибка действия · "+e.GetType().Name);Notify(e.Message);}
+        try{await action();}catch(OperationCanceledException){Notify("Операция приостановлена");}catch(Exception e){LogEvent(SafeDiagnostic.Exception(e));Notify(e.Message);}
     }
     private TextBlock? _modalMessage;
     private void Notify(string message){_message.Text=message;if(_modalMessage!=null)_modalMessage.Text=message;}
@@ -162,8 +162,8 @@ public sealed partial class MainView : UserControl
             foreach(var a in accounts)
             {
                 var icon=AccountIcon(a,30);var name=Text(a.Name==a.Service?a.Name:a.Service+" · "+a.Name,13,Brushes.White,true);var title=Row(icon,name);var p=new StackPanel{Spacing=5};p.Children.Add(title);
-                p.Children.Add(new ProgressBar{Minimum=0,Maximum=100,Value=a.UsedPercent,Height=3,Foreground=B(a.Accent),Background=B("#41516A"),Margin=new Thickness(32,4,0,0)});
-                var cap=Text(a.CapacityLabel,10,B("#B7C6DC"));cap.Margin=new Thickness(32,0,0,0);p.Children.Add(cap);
+                var usageBar=new ProgressBar{Minimum=0,Maximum=100,Value=a.UsedPercent,Height=3,Foreground=B(a.Accent),Background=B("#41516A"),Margin=new Thickness(32,4,0,0)};usageBar.IsVisible=a.QuotaKnown;p.Children.Add(usageBar);
+                var cap=Text(a.CapacityLabel,10,B("#B7C6DC"));ToolTip.SetTip(cap,a.QuotaDescription);cap.Margin=new Thickness(32,0,0,0);p.Children.Add(cap);
                 var check=Text(a.AdaptiveRefresh?a.CheckLabel:"Вручную · "+a.CheckLabel,9,B("#8FA3BF"));check.Margin=new Thickness(32,0,0,0);p.Children.Add(check);
                 var button=Btn("",()=>Navigate(a.Id,""));button.Content=p;button.Classes.Add("nav");button.HorizontalAlignment=HorizontalAlignment.Stretch;button.Tag=a;
                 if(Current.AccountId==a.Id&&Current.Page=="files")button.Background=B("#204A92");
@@ -309,7 +309,7 @@ public sealed partial class MainView : UserControl
     {
         _selected=f;if(f.IsFolder){Navigate(f.AccountId,f.Path);return;}_preview=true;Render();
     }
-    private MenuItem Menu(string title,Action action){var item=new MenuItem{Header=title};item.Click+=(_,_)=>{try{action();}catch(Exception e){LogEvent("Ошибка действия · "+e.GetType().Name);Notify(e.Message);}};return item;}
+    private MenuItem Menu(string title,Action action){var item=new MenuItem{Header=title};item.Click+=(_,_)=>{try{action();}catch(Exception e){LogEvent(SafeDiagnostic.Exception(e));Notify(e.Message);}};return item;}
     private ContextMenu FileMenu(CloudEntry f)
     {
         var items=new List<MenuItem>{Menu("Предпросмотр",()=>Open(f)),Menu("Открыть в новой вкладке",()=>{_tabs.Add(new(){AccountId=f.AccountId,Path=f.IsFolder?f.Path:f.Parent});_active=_tabs.Count-1;Render();Save();}),Menu("Скачать",()=>_ = Run(()=>Download(f,ExistingFileAction.RenameOld))),Menu("Открыть в Windows…",()=>OpenExternal(f)),Menu("Копировать в…",()=>TransferDialog(f,false)),Menu("Переместить в…",()=>TransferDialog(f,true)),Menu("Переименовать…",()=>Rename(f)),Menu(f.IsFavorite?"Убрать из избранного":"В избранное",()=>{f.IsFavorite=!f.IsFavorite;Save();RenderFiles();}),Menu(f.IsDeleted?"Восстановить":"Удалить…",()=>Delete(f))};
@@ -343,7 +343,7 @@ public sealed partial class MainView : UserControl
                         }
                         preview=new Border{BorderThickness=new Thickness(1),BorderBrush=Line,Child=sheet};
                     }
-                }else if(File.Exists(local)&&Path.GetExtension(f.Name)==".txt"&&f.Size<100_000)preview=Card(Text(File.ReadAllText(local),12));}catch(Exception e){LogEvent("Ошибка действия · "+e.GetType().Name);Notify(e.Message);}
+                }else if(File.Exists(local)&&Path.GetExtension(f.Name)==".txt"&&f.Size<100_000)preview=Card(Text(File.ReadAllText(local),12));}catch(Exception e){LogEvent(SafeDiagnostic.Exception(e));Notify(e.Message);}
             }
             _details.Children.Add(preview);_details.Children.Add(Text(f.Name,15,Ink,true));_details.Children.Add(StatusButton(f));
             foreach(var (label,value) in new[]{("Размер",f.SizeLabel),("Тип",f.Kind),("Хранилище",a.Title),("Папка",f.Parent.Length==0?"Корень":f.Parent),("Скачан",f.Downloaded?.ToLocalTime().ToString("dd.MM.yyyy, HH:mm")??"Не скачан")}){var pair=new Grid{ColumnDefinitions=new ColumnDefinitions("83,*")};pair.Children.Add(Text(label,11,Muted));var item=Text(value,12);Grid.SetColumn(item,1);pair.Children.Add(item);_details.Children.Add(pair);}
@@ -360,7 +360,7 @@ public sealed partial class MainView : UserControl
     private string RcloneConfig => Path.Combine(_store.DirectoryPath, "connections.conf");
     private IAccountProvider Provider(Account a)
     {
-        if (a.Provider == ProviderKind.Rclone) return new RcloneProvider(a, RcloneExe, RcloneConfig);
+        if (a.Provider == ProviderKind.Rclone) return new RcloneProvider(a, RcloneExe, RcloneConfig,LogEvent);
         var password=_sessionSecrets.GetValueOrDefault(a.Id);
         if(password is null&&OperatingSystem.IsWindows())password=new WindowsSecretStore(_store.DirectoryPath).Read(a.Id);
         if(password is null&&a.UserName.Length>0)throw new UnauthorizedAccessException("Введите пароль в настройках подключения");
@@ -369,13 +369,30 @@ public sealed partial class MainView : UserControl
     private async Task Refresh(Account a)
     {
         if(a.IsDemo){a.LastCheck=DateTimeOffset.Now;Save();Render();Notify("Демо-каталог обновлён. Внешние сервисы не запрашивались.");return;}
-        LogEvent("Индексация · начало · "+a.Provider);
+        var operation=Guid.NewGuid().ToString("N");
+        LogEvent($"Индексация · account={a.Id} op={operation} service={a.Service} · начало");
         using var provider=Provider(a);
+        await RefreshQuota(a,provider);
         if(a.Service=="Google Диск")try{await GoogleProfile.LoadAsync(a,RcloneConfig,Path.Combine(_store.DirectoryPath,"icons"));Save();}catch(Exception e) when(e is HttpRequestException or IOException or TaskCanceledException or JsonException or KeyNotFoundException) { }
         _message.Text="Индексация: "+a.Title;
         var incoming=await new CatalogService().IndexAsync(provider,new Progress<int>(n=>_message.Text="Индексация: "+a.Name+" · "+n+" объектов"),CancellationToken.None);
-        LogEvent("Индексация · завершена · объектов "+incoming.Count);
+        LogEvent($"Индексация · account={a.Id} op={operation} · завершена · объектов {incoming.Count}");
         CatalogService.Merge(_state,a,incoming);Save();if(_modal==null)Render();_message.Text="Каталог проверен: "+incoming.Count+" объектов";await SaveLocalCopies(a);
+    }
+    private async Task RefreshQuota(Account account,IAccountProvider provider)
+    {
+        if(provider is not IQuotaProvider quota){
+            account.QuotaError="Подключение не поддерживает запрос квоты";Save();return;
+        }
+        try{
+            using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            var value=await quota.GetQuotaAsync(timeout.Token);
+            value.Apply(account);Save();
+            LogEvent($"Квота · account={account.Id} service={account.Service} · обновлена");
+        }catch(Exception e) when(e is IOException or System.Text.Json.JsonException or HttpRequestException or OperationCanceledException){
+            account.QuotaError="Запрос квоты не завершён";Save();
+            LogEvent($"Квота · account={account.Id} · "+SafeDiagnostic.Exception(e));
+        }
     }
     private async Task SaveLocalCopies(Account account)
     {
@@ -657,7 +674,7 @@ public sealed partial class MainView : UserControl
         }
         layout.SelectionChanged+=(_,_)=>UpdatePreview();
         UpdatePreview();
-        var content=Stack(Text(a.Provider==ProviderKind.WebDav?a.Service+" · WebDAV":a.Service,12,Muted),Field("Название",name),Field("Группа",groups),adaptive,Text(a.CheckLabel,10,Muted),local,Field("Локальная папка",path),Field("Один файл, МБ",maxFile),Field("Общий объём, ГБ",maxTotal),keep,Field("Значок аккаунта",Row(preview,options)),Row(AsyncBtn("Загрузить свой значок",async()=>{if(await PickImage() is string f){selectedIcon=f;layout.SelectedIndex=(int)IconLayout.Custom;UpdatePreview();}}),AsyncBtn("Загрузить аватарку",async()=>{if(await PickImage() is string f){selectedAvatar=f;layout.SelectedIndex=(int)IconLayout.AvatarWithService;UpdatePreview();}})),Text(a.ProfileEmail,12,Muted));
+        var content=Stack(Text(a.Provider==ProviderKind.WebDav?a.Service+" · WebDAV":a.Service,12,Muted),Field("Название",name),Field("Группа",groups),adaptive,Text(a.CheckLabel,10,Muted),Text(a.QuotaDescription,11,Muted),local,Field("Локальная папка",path),Field("Один файл, МБ",maxFile),Field("Общий объём, ГБ",maxTotal),keep,Field("Значок аккаунта",Row(preview,options)),Row(AsyncBtn("Загрузить свой значок",async()=>{if(await PickImage() is string f){selectedIcon=f;layout.SelectedIndex=(int)IconLayout.Custom;UpdatePreview();}}),AsyncBtn("Загрузить аватарку",async()=>{if(await PickImage() is string f){selectedAvatar=f;layout.SelectedIndex=(int)IconLayout.AvatarWithService;UpdatePreview();}})),Text(a.ProfileEmail,12,Muted));
         if(a.Service=="Google Диск")content.Children.Add(AsyncBtn("Получить данные Google-профиля",async()=>{
             await GoogleProfile.LoadAsync(a,RcloneConfig,Path.Combine(_store.DirectoryPath,"icons"));Save();
             selectedAvatar=a.AvatarPath;UpdatePreview();Notify(a.ProfileEmail.Length>0?a.ProfileEmail:"Фото недоступно");
@@ -780,8 +797,10 @@ public sealed partial class MainView : UserControl
                 a.UserName = "";
             }
             using IAccountProvider provider = a.Provider == ProviderKind.Rclone
-                ? new RcloneProvider(a, RcloneExe, RcloneConfig) : new WebDavProvider(a,password.Text??"");
+                ? new RcloneProvider(a, RcloneExe, RcloneConfig,LogEvent) : new WebDavProvider(a,password.Text??"");
+            LogEvent($"Подключение · account={a.Id} · проверка корневого каталога");
             await provider.ListAsync("",CancellationToken.None);
+            await RefreshQuota(a,provider);
             if(string.IsNullOrWhiteSpace(a.LocalFolder))a.LocalFolder=AccountFolder(_state.LocalRoot,a);
             if(a.Service=="Google Диск")a.IconLayout=IconLayout.ServiceWithAvatar;
             _state.Accounts.Add(a);if(_tabs.Count==0)_tabs.Add(new(){AccountId=a.Id});_sessionSecrets[a.Id]=password.Text??"";if(a.Provider==ProviderKind.WebDav && OperatingSystem.IsWindows())new WindowsSecretStore(_store.DirectoryPath).Save(a.Id,password.Text??"");Save();CloseModal();Navigate(a.Id,"");await Refresh(a);

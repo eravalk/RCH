@@ -20,17 +20,13 @@ public static class GoogleProfile
             if(pair[0].Trim()=="token"){using var json=JsonDocument.Parse(pair[1]);token=json.RootElement.GetProperty("access_token").GetString();}
         }
         if(!drive || string.IsNullOrEmpty(token))return;
-        using var request=new HttpRequestMessage(HttpMethod.Get,"https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress,photoLink),storageQuota(limit,usage)");
+        using var request=new HttpRequestMessage(HttpMethod.Get,"https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress,photoLink)");
         request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",token);
         using var response=await Client.SendAsync(request);
         response.EnsureSuccessStatusCode();
         using var profile=JsonDocument.Parse(await response.Content.ReadAsByteArrayAsync());
         var user=profile.RootElement.GetProperty("user");
         if(user.TryGetProperty("emailAddress",out var mail))account.ProfileEmail=mail.GetString()??"";
-        if(profile.RootElement.TryGetProperty("storageQuota",out var quota)){
-            if(quota.TryGetProperty("limit",out var l)&&long.TryParse(l.GetString(),out var limit))account.TotalBytes=limit;
-            if(quota.TryGetProperty("usage",out var u)&&long.TryParse(u.GetString(),out var usage))account.UsedBytes=usage;
-        }
         if(!string.IsNullOrEmpty(account.AvatarPath) || !user.TryGetProperty("photoLink",out var photo)
             || !Uri.TryCreate(photo.GetString(),UriKind.Absolute,out var url) || url.Scheme!="https"
             || !(url.Host.EndsWith(".googleusercontent.com",StringComparison.OrdinalIgnoreCase)||url.Host.EndsWith(".google.com",StringComparison.OrdinalIgnoreCase)))return;
