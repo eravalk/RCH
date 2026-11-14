@@ -1,7 +1,10 @@
 name: Windows release
 on:
+  workflow_dispatch:
   push:
     tags: ['v*']
+    branches: [main]
+    paths: ['.github/workflows/release.yml']
 permissions:
   contents: write
 jobs:
@@ -18,12 +21,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $version = ([xml](Get-Content Directory.Build.props -Raw)).Project.PropertyGroup.Version
-          if ($env:GITHUB_REF_NAME -ne "v$version") { throw 'Version tag differs from Directory.Build.props' }
+          if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -ne "v$version") { throw 'Version tag differs from Directory.Build.props' }
           ./scripts/build-windows.ps1
           $path = "release/RCH-win-x64"
           New-Item -ItemType Directory -Force "$path/licenses/WebView2" | Out-Null
           Copy-Item vendor/webview2/*.txt "$path/licenses/WebView2"
           $asset = "RCH-$version-win-x64.zip"
           Compress-Archive "$path/*" $asset
-          gh release create $env:GITHUB_REF_NAME $asset --verify-tag --title "RCH $version" --generate-notes
+          gh release create "v$version" $asset --target $env:GITHUB_SHA --title "RCH $version" --generate-notes
           if ($LASTEXITCODE) { throw 'Release creation failed' }
