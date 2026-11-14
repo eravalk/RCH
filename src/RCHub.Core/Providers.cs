@@ -107,6 +107,32 @@ public sealed class CatalogService
         }
         return result;
     }
+    public async Task<CatalogScan> ScanAsync(ICloudProvider provider,IProgress<int>? progress,CancellationToken ct)
+    {
+        var result=new List<CloudEntry>();var failed=new List<string>();
+        var folders=new Queue<string>();var visited=new HashSet<string>(StringComparer.Ordinal);folders.Enqueue("");
+        while(folders.TryDequeue(out var path))
+        {
+            ct.ThrowIfCancellationRequested();if(!visited.Add(path))continue;
+            try {
+                var children=await provider.ListAsync(path,ct);result.AddRange(children);progress?.Report(result.Count);
+                foreach(var child in children.Where(f=>f.IsFolder))folders.Enqueue(child.Path);
+            }catch(Exception e) when(path.Length>0 && e is IOException or UnauthorizedAccessException or HttpRequestException or System.Text.Json.JsonException) {
+                failed.Add(path);
+            }
+            await Task.Delay(125,ct);
+        }
+        return new(result,failed);
+    }
+    public static void Merge(AppState state,Account account,CatalogScan scan)
+    {
+        var previousCheck=account.LastCheck;
+        var preserved=state.Entries.Where(f=>f.AccountId==account.Id && scan.FailedFolders.Any(folder=>f.Path.StartsWith(folder+"/",StringComparison.Ordinal)));
+        var incoming=scan.Entries.Concat(preserved).DistinctBy(f=>f.Path,StringComparer.Ordinal).ToList();
+        Merge(state,account,incoming);
+        account.CatalogError=scan.FailedFolders.Count==0?"":$"Не прочитано папок: {scan.FailedFolders.Count}. Доступные файлы показаны, прежние записи недоступных папок сохранены.";
+        if(scan.FailedFolders.Count>0)account.LastCheck=previousCheck;
+    }
     public static void Merge(AppState state, Account account, IReadOnlyList<CloudEntry> incoming)
     {
         var old = state.Entries.Where(f => f.AccountId == account.Id).ToDictionary(f => f.Path, StringComparer.Ordinal);
@@ -130,3 +156,5 @@ public sealed class CatalogService
         account.LastCheck = DateTimeOffset.Now;
     }
 }
+
+public sealed record CatalogScan(IReadOnlyList<CloudEntry> Entries,IReadOnlyList<string> FailedFolders);

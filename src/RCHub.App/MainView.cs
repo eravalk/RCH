@@ -242,7 +242,7 @@ public sealed partial class MainView : UserControl
             var wrap=new WrapPanel{Orientation=Orientation.Horizontal,ItemWidth=_state.Settings.ThumbnailSize+25,Margin=new Thickness(18,0)};
             foreach(var f in entries)
             {
-                var content=Stack(Text(f.Glyph,45,B(f.IsFolder?"#D5A343":"#6B8DB5")),Text(f.Name,12),StatusButton(f));
+                var content=Stack(FileSymbol.Create(f,54),Text(f.Name,12),StatusButton(f));
                 var tile=new Border{Child=content,Padding=new Thickness(12),Margin=new Thickness(5),Background=Surface,CornerRadius=new CornerRadius(6),MinHeight=_state.Settings.ThumbnailSize,Tag=f};
                 tile.Tapped+=(_,_)=>Open(f);tile.PointerPressed+=(_,e)=>StartDrag(f,e);tile.ContextMenu=FileMenu(f);wrap.Children.Add(tile);
             }
@@ -260,19 +260,11 @@ public sealed partial class MainView : UserControl
             if(_selected is not null)table.SelectedItem=entries.FirstOrDefault(f=>f.Id==_selected.Id);
             _fileArea.Children.Add(table);
         }
-        if(entries.Count==0)_fileArea.Children.Add(new Border{Child=Stack(Text("Пока нет файлов",21,Muted),Text(_query.Length>0?"Измените поисковый запрос":"Перетащите файлы или нажмите «Загрузить»",12,Muted)),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center});
+        if(Current.Page=="files" && CurrentAccount.CatalogError.Length>0)_fileArea.Children.Add(new Border{Background=Surface,Padding=new Thickness(10),VerticalAlignment=VerticalAlignment.Bottom,Child=Text(CurrentAccount.CatalogError,12,Ink)});
+        if(entries.Count==0 && !(Current.Page=="files"&&CurrentAccount.CatalogError.Length>0))_fileArea.Children.Add(new Border{Child=Stack(Text("Пока нет файлов",21,Muted),Text(_query.Length>0?"Измените поисковый запрос":"Перетащите файлы или нажмите «Загрузить»",12,Muted)),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center});
         if(_preview)RenderDetail();
     }
-    private Control FileMark(CloudEntry f)
-    {
-        var ext=Path.GetExtension(f.Name).TrimStart('.').ToUpperInvariant();
-        var color=ext switch {"PDF"=>"#C74446","XLS" or "XLSX" or "CSV"=>"#21754B","DOC" or "DOCX"=>"#2964B6",
-            "PPT" or "PPTX"=>"#C75C33","ZIP" or "7Z"=>"#9D6A22",_=>f.IsFolder?"#B88224":"#456C98"};
-        if(IsDark)color=ext switch {"PDF"=>"#FF999C","XLS" or "XLSX" or "CSV"=>"#87DDB7","PPT" or "PPTX"=>"#FFAD80",_=>f.IsFolder?"#EAC176":"#A2C7FF"};
-        var badge=new Border{Width=33,Height=30,CornerRadius=new CornerRadius(3),Background=Surface,BorderBrush=B(color),BorderThickness=new Thickness(1,1,1,3)};
-        var caption=Text(f.IsFolder?"▰":ext.Length==0?"•":ext[..Math.Min(4,ext.Length)],f.IsFolder?17:10,B(color),true);
-        caption.HorizontalAlignment=HorizontalAlignment.Center;badge.Child=caption;return badge;
-    }
+    private Control FileMark(CloudEntry f)=>FileSymbol.Create(f,_state.Settings.IconSize+10);
     private void ShowWeb(Account account,CloudEntry? file=null)
     {
         var uri=WebLocation.For(account,file);
@@ -325,7 +317,7 @@ public sealed partial class MainView : UserControl
         if(f is null)_details.Children.Add(Text("Выберите файл",12,Muted));
         else
         {
-            Control preview=Card(Text(f.Glyph,64,Muted),new Thickness(35));
+            Control preview=Card(FileSymbol.Create(f,80),new Thickness(35));
             var a=_state.Accounts.First(x=>x.Id==f.AccountId);
             if(!a.IsDemo&&!string.IsNullOrWhiteSpace(a.LocalFolder))
             {
@@ -375,9 +367,13 @@ public sealed partial class MainView : UserControl
         await RefreshQuota(a,provider);
         if(a.Service=="Google Диск")try{await GoogleProfile.LoadAsync(a,RcloneConfig,Path.Combine(_store.DirectoryPath,"icons"));Save();}catch(Exception e) when(e is HttpRequestException or IOException or TaskCanceledException or JsonException or KeyNotFoundException) { }
         _message.Text="Индексация: "+a.Title;
-        var incoming=await new CatalogService().IndexAsync(provider,new Progress<int>(n=>_message.Text="Индексация: "+a.Name+" · "+n+" объектов"),CancellationToken.None);
-        LogEvent($"Индексация · account={a.Id} op={operation} · завершена · объектов {incoming.Count}");
-        CatalogService.Merge(_state,a,incoming);Save();if(_modal==null)Render();_message.Text="Каталог проверен: "+incoming.Count+" объектов";await SaveLocalCopies(a);
+        CatalogScan incoming;
+        try { incoming=await new CatalogService().ScanAsync(provider,new Progress<int>(n=>_message.Text="Индексация: "+a.Name+" · "+n+" объектов"),CancellationToken.None); }
+        catch(Exception e) when(e is IOException or UnauthorizedAccessException or HttpRequestException or JsonException) {
+            a.CatalogError="Не удалось прочитать корневой каталог. "+e.Message;Save();if(_modal==null)Render();throw;
+        }
+        LogEvent($"Индексация · account={a.Id} op={operation} · завершена · объектов {incoming.Entries.Count} · недоступно папок {incoming.FailedFolders.Count}");
+        CatalogService.Merge(_state,a,incoming);Save();if(_modal==null)Render();_message.Text=a.CatalogError.Length>0?a.CatalogError:"Каталог проверен: "+incoming.Entries.Count+" объектов";await SaveLocalCopies(a);
     }
     private async Task RefreshQuota(Account account,IAccountProvider provider)
     {
@@ -674,7 +670,7 @@ public sealed partial class MainView : UserControl
         }
         layout.SelectionChanged+=(_,_)=>UpdatePreview();
         UpdatePreview();
-        var content=Stack(Text(a.Provider==ProviderKind.WebDav?a.Service+" · WebDAV":a.Service,12,Muted),Field("Название",name),Field("Группа",groups),adaptive,Text(a.CheckLabel,10,Muted),Text(a.QuotaDescription,11,Muted),local,Field("Локальная папка",path),Field("Один файл, МБ",maxFile),Field("Общий объём, ГБ",maxTotal),keep,Field("Значок аккаунта",Row(preview,options)),Row(AsyncBtn("Загрузить свой значок",async()=>{if(await PickImage() is string f){selectedIcon=f;layout.SelectedIndex=(int)IconLayout.Custom;UpdatePreview();}}),AsyncBtn("Загрузить аватарку",async()=>{if(await PickImage() is string f){selectedAvatar=f;layout.SelectedIndex=(int)IconLayout.AvatarWithService;UpdatePreview();}})),Text(a.ProfileEmail,12,Muted));
+        var content=Stack(Text(a.Provider==ProviderKind.WebDav?a.Service+" · WebDAV":a.Service,12,Muted),Field("Название",name),Field("Группа",groups),adaptive,Text(a.CheckLabel,10,Muted),Text(a.QuotaDescription,11,Muted),Text(a.CatalogError,12,Muted),local,Field("Локальная папка",path),Field("Один файл, МБ",maxFile),Field("Общий объём, ГБ",maxTotal),keep,Field("Значок аккаунта",Row(preview,options)),Row(AsyncBtn("Загрузить свой значок",async()=>{if(await PickImage() is string f){selectedIcon=f;layout.SelectedIndex=(int)IconLayout.Custom;UpdatePreview();}}),AsyncBtn("Загрузить аватарку",async()=>{if(await PickImage() is string f){selectedAvatar=f;layout.SelectedIndex=(int)IconLayout.AvatarWithService;UpdatePreview();}})),Text(a.ProfileEmail,12,Muted));
         if(a.Service=="Google Диск")content.Children.Add(AsyncBtn("Получить данные Google-профиля",async()=>{
             await GoogleProfile.LoadAsync(a,RcloneConfig,Path.Combine(_store.DirectoryPath,"icons"));Save();
             selectedAvatar=a.AvatarPath;UpdatePreview();Notify(a.ProfileEmail.Length>0?a.ProfileEmail:"Фото недоступно");

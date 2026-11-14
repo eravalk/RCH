@@ -8,6 +8,8 @@ using RCHub.Core;
 using Avalonia.VisualTree;
 using Avalonia.Interactivity;
 AppBuilder.Configure<AppBase>().WithInterFont().UseSkia().UseHeadless(new AvaloniaHeadlessPlatformOptions{UseHeadlessDrawing=false}).SetupWithoutStarting();
+foreach(var icon in FileIcons.All)FileSymbol.Create(new CloudEntry{Name="sample."+icon.Extensions.FirstOrDefault(),IsFolder=icon.Key=="folder"},32);
+Console.WriteLine("PASS all 24 file icon geometries load");
 var root=Path.Combine(Path.GetTempPath(),Guid.NewGuid().ToString("N"));
 var store=new StateStore(root);
 var view=new MainView(store);var window=new Window{Width=1360,Height=860,Content=view};window.Show();

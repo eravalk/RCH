@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace RCHub.Core;
 
-public sealed record ReleaseStatus(bool Newer,string Message,string? Download=null);
+public sealed record ReleaseStatus(bool Newer,string Message,string? Download=null,string? Digest=null);
 public static class ReleaseCheck
 {
     public const string Releases="https://github.com/eravalk/RCH/releases";
@@ -28,7 +28,9 @@ public static class ReleaseCheck
         if(Normalize(parsed)<=Normalize(installed))return new(false,"Установлена актуальная версия RCH.");
         var name=$"RCH-{parsed}-win-x64.zip";
         var expected=$"{Releases}/download/{tag}/{name}";
-        var asset=root.GetProperty("assets").EnumerateArray().Any(a=>a.GetProperty("name").GetString()==name && a.GetProperty("browser_download_url").GetString()==expected);
-        return new(true,"Доступна новая версия RCH "+parsed,asset?expected:Releases+"/tag/"+Uri.EscapeDataString(tag));
+        var asset=root.GetProperty("assets").EnumerateArray().FirstOrDefault(a=>a.GetProperty("name").GetString()==name && a.GetProperty("browser_download_url").GetString()==expected);
+        var found=asset.ValueKind==JsonValueKind.Object;
+        var digest=found && asset.TryGetProperty("digest",out var d) && d.ValueKind==JsonValueKind.String?d.GetString():null;
+        return new(true,"Доступна новая версия RCH "+parsed,found?expected:Releases+"/tag/"+Uri.EscapeDataString(tag),digest);
     }
 }

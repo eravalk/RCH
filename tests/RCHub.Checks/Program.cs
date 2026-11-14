@@ -93,6 +93,31 @@ var legacy=new Account{UsedBytes=100,TotalBytes=1000};
 Check(!legacy.QuotaKnown && legacy.CapacityLabel=="Объём ещё не получен","Legacy quota without timestamp is not presented as fresh");
 var safe=SafeDiagnostic.Report("failed to create file system for private/file: missing icloud trust token; cookie=SECRET; password=123456; https://x.test/?code=123456","account=synthetic command=lsjson",1);
 Check(safe.Contains("missing icloud trust token") && !safe.Contains("SECRET") && !safe.Contains("123456") && !safe.Contains("private/file"),"Post-login stderr retains known error phrase and strips private values");
+
+Check(Format.Quota(15L*1024*1024*1024)=="15 ГиБ" && Format.Quota(2L*1024*1024*1024)=="2 ГиБ" && Format.Quota(20L*1024*1024*1024)=="20 ГиБ","Cloud quota uses explicitly labelled binary units without rounding the plan");
+Check(FileIcons.For("PHOTO.HEIC").Key=="image" && FileIcons.For("scene.unity").Key=="unity" && FileIcons.For("budget.xlsx").Key=="sheet" && FileIcons.For("unknown.xyz").Key=="unknown","File icons distinguish media, Unity, office and unknown formats");
+Check(FileIcons.All.Count==24 && FileIcons.All.SelectMany(i=>i.Extensions).Distinct().Count()==FileIcons.All.Sum(i=>i.Extensions.Length),"File icon mappings have no ambiguous extensions");
+var partialAccount=new Account{Id="partial",LastCheck=now.AddDays(-1)};
+var partialState=new AppState{Accounts=[partialAccount],Entries=[new(){AccountId="partial",Name="saved.txt",Path="locked/saved.txt",Downloaded=now,SavedETag="saved"},new(){AccountId="partial",Name="gone.txt",Path="gone.txt"}]};
+var scan=await new CatalogService().ScanAsync(new PartialCatalog(),null,default);
+CatalogService.Merge(partialState,partialAccount,scan);
+Check(scan.FailedFolders.SequenceEqual(new[]{"locked"}) && partialState.Entries.Any(e=>e.Path=="visible.txt") && partialState.Entries.Any(e=>e.Path=="locked/saved.txt") && !partialState.Entries.Any(e=>e.Path=="gone.txt"),"Unreadable nested folder preserves its cached files while accessible folders update");
+Check(partialAccount.LastCheck==now.AddDays(-1) && partialAccount.CatalogError.Length>0,"Partial indexing does not falsely mark a full check successful");
+try {await new CatalogService().ScanAsync(new PartialCatalog(true),null,default);throw new Exception("Expected root failure");}catch(IOException){}
+Check(partialState.Entries.Count==3,"Failed root listing does not replace the cached catalog");
+using(var payload=new MemoryStream()) {
+    using(var zip=new System.IO.Compression.ZipArchive(payload,System.IO.Compression.ZipArchiveMode.Create,true)) {
+        using var output=new StreamWriter(zip.CreateEntry("RCHub.exe").Open());output.Write("test-package");
+    }
+    var bytes=payload.ToArray();var digest="sha256:"+Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes));
+    using var client=new HttpClient(new PackageReply(bytes));
+    var url="https://github.com/eravalk/RCH/releases/download/v0.1.11/RCH-0.1.11-win-x64.zip";
+    var download=await ReleaseDownload.SaveAsync(client,url,Path.Combine(root,"updates"),digest,null,default);
+    Check(File.Exists(download)&&File.ReadAllBytes(download).SequenceEqual(bytes),"Update downloads directly and validates archive and SHA-256");
+    try {await ReleaseDownload.SaveAsync(client,url,Path.Combine(root,"bad-update"),"sha256:wrong",null,default);throw new Exception("Expected digest rejection");}catch(IOException){}
+    Check(!Directory.EnumerateFiles(Path.Combine(root,"bad-update")).Any(),"Failed update checksum leaves no archive or partial file");
+    Reject(()=>ReleaseDownload.SaveAsync(client,"https://other.test/update.zip",root,null,null,default).GetAwaiter().GetResult(),"Update rejects a download outside the project releases");
+}
 Console.WriteLine($"{count} checks passed");
 }finally{Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();Directory.Delete(root,true);}
 static string Resource(string href)=>$"<d:response><d:href>{href}</d:href><d:propstat><d:prop><d:getcontentlength>3</d:getcontentlength></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>";
@@ -102,3 +127,18 @@ public async Task DownloadAsync(string path,Stream destination,IProgress<long>? 
 public Task<IReadOnlyList<CloudEntry>> ListAsync(string folder,CancellationToken ct)=>throw new NotSupportedException();public Task UploadAsync(string path,Stream source,CancellationToken ct)=>throw new NotSupportedException();public Task CreateFolderAsync(string path,CancellationToken ct)=>throw new NotSupportedException();public Task DeleteAsync(string path,CancellationToken ct)=>throw new NotSupportedException();public Task MoveAsync(string source,string destination,CancellationToken ct)=>throw new NotSupportedException();}
 
 sealed class ReleaseReply(int status,string json):HttpMessageHandler { protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken ct)=>Task.FromResult(new HttpResponseMessage((System.Net.HttpStatusCode)status){Content=new StringContent(json)}); }
+
+sealed class PartialCatalog(bool rootFails=false):ICloudProvider {
+public Task<IReadOnlyList<CloudEntry>> ListAsync(string folder,CancellationToken ct) {
+    if(rootFails || folder=="locked")throw new IOException("invalidResourceId: ObjectHandle is Invalid");
+    return Task.FromResult<IReadOnlyList<CloudEntry>>([new(){AccountId="partial",Path="locked",Name="locked",IsFolder=true},new(){AccountId="partial",Path="visible.txt",Name="visible.txt"}]);
+}
+public Task DownloadAsync(string p,Stream d,IProgress<long>? progress,CancellationToken ct)=>throw new NotSupportedException();
+public Task UploadAsync(string p,Stream s,CancellationToken ct)=>throw new NotSupportedException();
+public Task CreateFolderAsync(string p,CancellationToken ct)=>throw new NotSupportedException();
+public Task DeleteAsync(string p,CancellationToken ct)=>throw new NotSupportedException();
+public Task MoveAsync(string p,string d,CancellationToken ct)=>throw new NotSupportedException();
+}
+sealed class PackageReply(byte[] bytes):HttpMessageHandler {
+protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken ct)=>Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK){Content=new ByteArrayContent(bytes)});
+}

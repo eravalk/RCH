@@ -49,14 +49,14 @@ public sealed partial class MainView
     }
     private async Task CheckUpdates(bool manual)
     {
-        if(checking)return;checking=true;
+        if(checking || downloadingUpdate)return;checking=true;
         LogEvent("GitHub Releases · проверка · установлена "+ReleaseCheck.DisplayVersion);
         try{
             var result=await ReleaseCheck.CheckAsync(ReleasesClient,ReleaseCheck.Installed);
             LogEvent(result.Message);
             if(result.Newer && result.Download is string link){
                 updateBar.Children.Clear();updateBar.Children.Add(Text(result.Message,14,Ink,true));
-                updateBar.Children.Add(Btn(link.EndsWith(".zip")?"Скачать обновление":"Открыть релиз",()=>LaunchUrl(link),true));
+                updateBar.Children.Add(link.EndsWith(".zip")?AsyncBtn("Скачать в «Загрузки»",()=>DownloadUpdate(link,result.Digest),true):Btn("Открыть релиз",()=>LaunchUrl(link),true));
                 updateBar.Children.Add(Btn("Позже",()=>updateBar.IsVisible=false));updateBar.IsVisible=true;
             }else if(manual)Notify(result.Message);
         }catch(Exception e) when(e is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException or KeyNotFoundException or InvalidOperationException){
@@ -64,4 +64,25 @@ public sealed partial class MainView
             LogEvent(message);if(manual)Notify(message);
         }finally{checking=false;}
     }
+    private bool downloadingUpdate;
+    private async Task DownloadUpdate(string link,string? digest)
+    {
+        if(downloadingUpdate)return;downloadingUpdate=true;
+        var status=Text("Подготовка скачивания…",13,Ink);using var cancel=new CancellationTokenSource(TimeSpan.FromMinutes(30));
+        updateBar.Children.Clear();updateBar.Children.Add(status);updateBar.Children.Add(Btn("Отмена",()=>cancel.Cancel()));updateBar.IsVisible=true;
+        try {
+            using var client=new HttpClient{Timeout=Timeout.InfiniteTimeSpan};client.DefaultRequestHeaders.UserAgent.ParseAdd("RCH/"+ReleaseCheck.DisplayVersion);
+            var folder=Path.Combine(ReleaseDownload.DownloadsFolder(),"RCH Updates");
+            var path=await ReleaseDownload.SaveAsync(client,link,folder,digest,new Progress<long>(n=>status.Text="Скачивание обновления: "+Format.Bytes(n)),cancel.Token);
+            updateBar.Children.Clear();updateBar.Children.Add(Text("Обновление скачано. Распакуйте архив в отдельную папку и запустите RCHub.exe.",12,Ink));
+            updateBar.Children.Add(Btn("Открыть папку",()=>Process.Start(new ProcessStartInfo(folder){UseShellExecute=true}),true));
+            updateBar.Children.Add(Btn("Скрыть",()=>updateBar.IsVisible=false));
+            LogEvent("Обновление · пакет скачан и проверен"+(digest==null?" · GitHub не предоставил SHA-256":" · SHA-256 совпала"));
+        }catch(Exception e) when(e is IOException or HttpRequestException or OperationCanceledException or UnauthorizedAccessException or ArgumentException) {
+            status.Text=e is OperationCanceledException?"Скачивание отменено. Можно повторить проверку обновлений.":"Не удалось скачать обновление: "+e.Message;
+            LogEvent("Обновление · "+SafeDiagnostic.Exception(e));
+            updateBar.Children.Clear();updateBar.Children.Add(status);updateBar.Children.Add(AsyncBtn("Повторить",()=>DownloadUpdate(link,digest)));
+        }finally{downloadingUpdate=false;}
+    }
+
 }
