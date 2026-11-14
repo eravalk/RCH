@@ -46,6 +46,7 @@ foreach(var id in new[]{"home","work"})
     if(rows.Count!=1 || rows[0].AccountId!=id)throw new Exception("Incorrect files after account switch");
 }
 ContextMenuChecks.Run(root);
+SelectionChecks.Run(root);
 var main=(MainView)secondWindow.Content!;
 main.ShowDebug();
 Dispatcher.UIThread.RunJobs();

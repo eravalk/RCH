@@ -247,7 +247,7 @@ public sealed partial class MainView : UserControl
             {
                 var content=Stack(FileSymbol.Create(f,54),Text(f.Name,12),StatusButton(f));
                 var tile=new Border{Child=content,Padding=new Thickness(12),Margin=new Thickness(5),Background=Surface,CornerRadius=new CornerRadius(6),MinHeight=_state.Settings.ThumbnailSize,Tag=f};
-                tile.Tapped+=(_,_)=>Open(f);tile.PointerPressed+=(_,e)=>StartDrag(f,e);wrap.Children.Add(tile);
+                tile.Tapped+=(_,_)=>{if(!_dragging)SelectEntry(f);};tile.DoubleTapped+=(_,e)=>{if(!_dragging){Open(f);e.Handled=true;}};tile.PointerPressed+=(_,e)=>StartDrag(f,e);wrap.Children.Add(tile);
             }
             _fileArea.Children.Add(new ScrollViewer{Content=wrap});
         }
@@ -259,6 +259,12 @@ public sealed partial class MainView : UserControl
             table.Columns.Add(new DataGridTextColumn{Header="Изменён",Binding=new Avalonia.Data.Binding("ModifiedLabel"),Width=new DataGridLength(180)});
             table.Columns.Add(new DataGridTextColumn{Header="Размер",Binding=new Avalonia.Data.Binding("SizeLabel"),Width=new DataGridLength(110)});
             table.Columns.Add(new DataGridTemplateColumn{Header="",Width=new DataGridLength(40),CellTemplate=new FuncDataTemplate<CloudEntry>((f,_)=>{var b=Btn("⋯",()=>{});b.Classes.Add("quiet");b.Padding=new Thickness(5);if(f is not null){b.Click+=(_,_)=>{_selected=f;OpenContextMenu(b,FileMenu(f));};}return b;})});
+            table.DoubleTapped+=(_,e)=>
+            {
+                var chain=(e.Source as Visual)?.GetSelfAndVisualAncestors().OfType<Control>().ToArray()??[];
+                if(chain.Any(c=>c is Button))return;
+                if(chain.OfType<DataGridRow>().FirstOrDefault()?.DataContext is CloudEntry file && !_dragging){Open(file);e.Handled=true;}
+            };
             table.SelectionChanged+=(_,_)=>{_selected=table.SelectedItem as CloudEntry;if(_preview)RenderDetail();};
             if(_selected is not null)table.SelectedItem=entries.FirstOrDefault(f=>f.Id==_selected.Id);
             _fileArea.Children.Add(table);
@@ -284,7 +290,12 @@ public sealed partial class MainView : UserControl
         host.SizeChanged+=(_,_)=>Dispatcher.UIThread.Post(host.UpdateSize);
         Grid.SetRow(host,2);grid.Children.Add(host);
         var viewer=new Window{Icon=LogoRaster.WindowMark(),Title=(file?.Name??account.Service)+" · RCH",Width=1040,Height=740,MinWidth=560,MinHeight=360,Content=grid};
-        if(TopLevel.GetTopLevel(this) is Window owner)viewer.Show(owner);else viewer.Show();
+        try{if(TopLevel.GetTopLevel(this) is Window owner)viewer.Show(owner);else viewer.Show();}
+        catch(Exception error)
+        {
+            viewer.Close();LogEvent(SafeDiagnostic.Exception(error));
+            Notify("Не удалось открыть встроенный веб-просмотр. Используйте «Открыть в браузере».");
+        }
     }
     private Control FileCell(CloudEntry f)
     {
@@ -294,22 +305,36 @@ public sealed partial class MainView : UserControl
             p.Children.Add(Text("Скачан: "+(f.Downloaded?.ToLocalTime().ToString("dd.MM.yyyy, HH:mm")??"не скачан"),10,Muted));
             p.Children.Add(Row(AsyncBtn("Заменить",()=>Download(f,ExistingFileAction.Replace)),AsyncBtn("Сохранить обе",()=>Download(f,ExistingFileAction.RenameOld)),AsyncBtn("В папку версий",()=>Download(f,ExistingFileAction.ArchiveOld))));
         }
-        var b=new Border{Child=p,Padding=new Thickness(8,4),Tag=f,Background=Brushes.Transparent};b.Tapped+=(_,_)=>{if(!_dragging)Open(f);};b.PointerPressed+=(_,e)=>StartDrag(f,e);return b;
+        var b=new Border{Child=p,Padding=new Thickness(8,4),Tag=f,Background=Brushes.Transparent};b.PointerPressed+=(_,e)=>StartDrag(f,e);return b;
     }
     private Control StatusButton(CloudEntry f)
     {
         var b=Btn(f.StatusLabel,()=>{if(f.IsFolder)return;if(!_expanded.Add(f.Id))_expanded.Remove(f.Id);RenderFiles();});b.Classes.Add("quiet");b.Padding=new Thickness(0);b.FontSize=10;b.MinHeight=18;b.HorizontalAlignment=HorizontalAlignment.Left;b.Foreground=f.Status switch{LocalStatus.Current=>B("#2F9C6D"),LocalStatus.Mismatch=>B("#BF8934"),LocalStatus.NewVersion=>B(_state.Settings.Accent),_=>Muted};b.Tapped+=(_,e)=>e.Handled=true;return b;
     }
+    private void SelectEntry(CloudEntry file)
+    {
+        _selected=file;
+        if(_fileArea.Children.OfType<DataGrid>().FirstOrDefault() is {} table)table.SelectedItem=file;
+        else foreach(var tile in _fileArea.GetVisualDescendants().OfType<Border>().Where(b=>b.Tag is CloudEntry))
+            tile.Background=tile.Tag is CloudEntry entry && entry.Id==file.Id?B(_state.Settings.Accent):Surface;
+        if(_preview)RenderDetail();
+    }
+    private void PreviewEntry(CloudEntry file)
+    {
+        SelectEntry(file);_preview=true;
+        _fileArea.ColumnDefinitions=new ColumnDefinitions("*,290");
+        RenderDetail();
+    }
     private void Open(CloudEntry f)
     {
-        _selected=f;if(f.IsFolder){Navigate(f.AccountId,f.Path);return;}_preview=true;Render();
+        if(f.IsFolder){Navigate(f.AccountId,f.Path);return;}PreviewEntry(f);
     }
     private MenuItem Menu(string title,Action action){var item=new MenuItem{Header=title};item.Click+=(_,_)=>{try{action();}catch(Exception e){LogEvent(SafeDiagnostic.Exception(e));Notify(e.Message);}};return item;}
     private ContextMenu FileMenu(CloudEntry f)
     {
-        var items=new List<MenuItem>{Menu("Предпросмотр",()=>Open(f)),Menu("Открыть в новой вкладке",()=>{_tabs.Add(new(){AccountId=f.AccountId,Path=f.IsFolder?f.Path:f.Parent});_active=_tabs.Count-1;Render();Save();}),Menu("Скачать",()=>_ = Run(()=>Download(f,ExistingFileAction.RenameOld))),Menu("Открыть в Windows…",()=>OpenExternal(f)),Menu("Копировать в…",()=>TransferDialog(f,false)),Menu("Переместить в…",()=>TransferDialog(f,true)),Menu("Переименовать…",()=>Rename(f)),Menu(f.IsFavorite?"Убрать из избранного":"В избранное",()=>{f.IsFavorite=!f.IsFavorite;Save();RenderFiles();}),Menu(f.IsDeleted?"Восстановить":"Удалить…",()=>Delete(f))};
+        var items=new List<MenuItem>{Menu("Предпросмотр",()=>PreviewEntry(f)),Menu("Открыть в новой вкладке",()=>{_tabs.Add(new(){AccountId=f.AccountId,Path=f.IsFolder?f.Path:f.Parent});_active=_tabs.Count-1;Render();Save();}),Menu("Скачать",()=>_ = Run(()=>Download(f,ExistingFileAction.RenameOld))),Menu("Открыть в Windows…",()=>OpenExternal(f)),Menu("Копировать в…",()=>TransferDialog(f,false)),Menu("Переместить в…",()=>TransferDialog(f,true)),Menu("Переименовать…",()=>Rename(f)),Menu(f.IsFavorite?"Убрать из избранного":"В избранное",()=>{f.IsFavorite=!f.IsFavorite;Save();RenderFiles();}),Menu(f.IsDeleted?"Восстановить":"Удалить…",()=>Delete(f))};
         var account=_state.Accounts.First(a=>a.Id==f.AccountId);
-        if(WebLocation.For(account,f)!=null)items.Insert(1,Menu("Веб-просмотр файла",()=>ShowWeb(account,f)));
+        if(WebLocation.For(account,f)!=null)items.Insert(1,Menu("Открыть в веб-просмотре",()=>ShowWeb(account,f)));
         return new ContextMenu{ItemsSource=items};
     }
     private void RenderDetail()

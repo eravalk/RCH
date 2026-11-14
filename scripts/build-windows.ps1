@@ -28,3 +28,8 @@ try {
 }
 dotnet publish src/RCHub.Desktop/RCHub.Desktop.csproj -c Release -r win-x64 --self-contained true -m:1 -o release/RCH-win-x64
 if ($LASTEXITCODE -ne 0) { throw 'Publish failed' }
+
+$probe = Start-Process -FilePath (Join-Path (Get-Location) 'release/RCH-win-x64/RCH.exe') -ArgumentList '--check-native-host' -PassThru
+if (!$probe.WaitForExit(30000)) { $probe.Kill(); throw 'Native Windows child-window check timed out' }
+if ($probe.ExitCode -ne 0) { throw "Native Windows child-window check failed: $($probe.ExitCode)" }
+Write-Host 'PASS published Windows executable creates a native child window'

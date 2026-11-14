@@ -22,6 +22,20 @@ public sealed class DesktopApp : RCHub.App.AppBase
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            if(desktop.Args?.Contains("--check-native-host")==true)
+            {
+                var probe=new NativeControlHost();
+                var test=new Window{Width=320,Height=200,Content=probe};
+                desktop.MainWindow=test;
+                test.Opened+=(_,_)=>Avalonia.Threading.Dispatcher.UIThread.Post(()=>
+                {
+                    // NativeControlHost creates its child HWND during attachment/layout.
+                    // Run in the real Windows executable so its embedded manifest is used.
+                    test.UpdateLayout();
+                    desktop.Shutdown(0);
+                },Avalonia.Threading.DispatcherPriority.Background);
+                base.OnFrameworkInitializationCompleted();return;
+            }
             var view=new MainView();
             var window=new Window { Title="RCH",Icon=LogoRaster.WindowMark(), Width=1360,Height=860,MinWidth=960,MinHeight=640,Content=view,Background=Brushes.White };
             desktop.MainWindow=window;
